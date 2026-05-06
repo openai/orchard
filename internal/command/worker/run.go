@@ -261,6 +261,12 @@ func readBootstrapToken() (string, error) {
 }
 
 func createLogger() (*zap.Logger, error) {
+	const (
+		maxLogSizeMB  = 100
+		maxLogBackups = 5
+		maxLogAgeDays = 14
+	)
+
 	level := zap.InfoLevel
 	if debug {
 		level = zap.DebugLevel
@@ -274,8 +280,11 @@ func createLogger() (*zap.Logger, error) {
 	}
 
 	logFileWriter := zapcore.AddSync(&lumberjack.Logger{
-		Filename: logFilePath,
-		MaxSize:  100, // megabytes
+		Filename:   logFilePath,
+		MaxSize:    maxLogSizeMB,
+		MaxBackups: maxLogBackups,
+		MaxAge:     maxLogAgeDays,
+		Compress:   true,
 	})
 	core := zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
