@@ -1,24 +1,30 @@
-version: 2
+version: "2"
 
 run:
   timeout: 5m
 
-linters-settings:
-  # Even in Rust you can get away with partial matching,
-  # so make sure that the linter respects the programmer's
-  # intent expressed in the form of "default" case.
-  exhaustive:
-    default-signifies-exhaustive: true
-
-  gosec:
-    excludes:
-      - G115
-
 formatters:
-  enable-all: true
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+    - golines
+    - swaggo
 
 linters:
-  enable-all: true
+  default: all
+
+  settings:
+    # Even in Rust you can get away with partial matching,
+    # so make sure that the linter respects the programmer's
+    # intent expressed in the form of "default" case.
+    exhaustive:
+      default-signifies-exhaustive: true
+
+    gosec:
+      excludes:
+        - G115
 
   disable:
     # We don't have high-performance requirements at this moment, so sacrificing

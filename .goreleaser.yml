@@ -23,35 +23,14 @@ builds:
 
 archives:
   - id: binary
-    format: binary
+    formats:
+      - binary
     name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
   - id: regular
     name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
 
 release:
   prerelease: auto
-
-nfpms:
-  - package_name: orchard-controller
-    vendor: Cirrus Labs, Inc.
-    homepage: https://github.com/cirruslabs/orchard
-    maintainer: support@cirruslabs.org
-    description: Orchestrator for running Tart Virtual Machines on a cluster of Apple Silicon devices
-    section: misc
-    formats:
-      - deb
-      - rpm
-    contents:
-      - src: packaging/orchard-controller.service
-        dst: /lib/systemd/system/orchard-controller.service
-        type: config
-    scripts:
-      postinstall: packaging/postinstall.sh
-      preremove: packaging/preremove.sh
-      postremove: packaging/postremove.sh
-
-furies:
-  - account: cirruslabs
 
 notarize:
   macos:
@@ -75,6 +54,6 @@ brews:
       bin.install "orchard"
       generate_completions_from_executable(bin/"orchard", "completion")
     caveats: See the Github repository for more information
-    homepage: https://github.com/cirruslabs/orchard
+    homepage: https://github.com/openai/orchard
     description: Orchestrator for running Tart Virtual Machines on a cluster of Apple Silicon devices
     skip_upload: auto

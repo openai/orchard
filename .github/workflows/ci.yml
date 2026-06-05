@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  merge_group:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.0
+          only-new-issues: true
+
+  test-linux:
+    name: Test (Linux)
+    runs-on: ghcr.io/cirruslabs/ubuntu-runner-amd64:24.04-md
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check out Vetu
+        uses: actions/checkout@v6
+        with:
+          repository: openai/vetu
+          path: _vetu
+      - name: Build Vetu
+        working-directory: _vetu
+        run: |
+          go build -o "$RUNNER_TEMP/vetu" cmd/vetu/main.go
+          sudo setcap cap_net_raw,cap_net_admin+eip "$RUNNER_TEMP/vetu"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Pre-pull default Vetu image
+        run: vetu pull ghcr.io/cirruslabs/ubuntu-runner-amd64:latest
+      - name: Run tests
+        run: go test -v -count=1 ./...
+
+  test-macos:
+    name: Test (macOS)
+    runs-on: ghcr.io/cirruslabs/macos-runner:tahoe
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Pre-pull default Tart image
+        run: tart pull ghcr.io/cirruslabs/macos-tahoe-base:latest
+      - name: Run tests
+        run: go test -timeout=20m -ldflags="-B gobuildid" -v -count=1 ./...
+      - name: Clean up test VMs
+        if: always()
+        run: |
+          tart list
+          rm -rf ~/.tart/vms/orchard-*
