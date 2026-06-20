@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	configpkg "github.com/cirruslabs/orchard/internal/config"
@@ -34,6 +35,9 @@ var experimentalRPCV2 bool
 var noExperimentalRPCV2 bool
 var experimentalPingInterval time.Duration
 var experimentalDisableDBCompression bool
+var experimentalStoreBackend string
+var experimentalEtcdEndpoints string
+var experimentalEtcdKeyPrefix string
 var workerOfflineTimeout time.Duration
 var execSessionRetentionTTL time.Duration
 var execSSHConnectionKeepaliveInterval time.Duration
@@ -85,6 +89,12 @@ func newRunCommand() *cobra.Command {
 			"smaller than the controller's default 30 second interval")
 	cmd.Flags().BoolVar(&experimentalDisableDBCompression, "experimental-disable-db-compression", false,
 		"disable database compression, which might reduce RAM usage in some scenarios")
+	cmd.Flags().StringVar(&experimentalStoreBackend, "experimental-store", string(controller.StoreBackendBadger),
+		"store backend to use (badger or etcd)")
+	cmd.Flags().StringVar(&experimentalEtcdEndpoints, "experimental-etcd-endpoints", "localhost:2379",
+		"comma-separated etcd endpoints used when --experimental-store=etcd")
+	cmd.Flags().StringVar(&experimentalEtcdKeyPrefix, "experimental-etcd-key-prefix", "/orchard",
+		"etcd key prefix used when --experimental-store=etcd")
 	cmd.Flags().DurationVar(&workerOfflineTimeout, "worker-offline-timeout", 3*time.Minute,
 		"duration (e.g. 60s or 5m30s) after which a worker is considered offline for the purposes "+
 			"of scheduling (no new VMs will be scheduled on such worker and already assigned VMs will be "+
@@ -219,6 +229,17 @@ func runController(cmd *cobra.Command, args []string) (err error) {
 		controllerOpts = append(controllerOpts, controller.WithDisableDBCompression())
 	}
 
+	switch controller.StoreBackend(experimentalStoreBackend) {
+	case controller.StoreBackendBadger:
+		// Default store backend.
+	case controller.StoreBackendEtcd:
+		controllerOpts = append(controllerOpts, controller.WithEtcdStore(
+			splitEtcdEndpoints(experimentalEtcdEndpoints), experimentalEtcdKeyPrefix,
+		))
+	default:
+		return fmt.Errorf("unsupported --experimental-store value %q", experimentalStoreBackend)
+	}
+
 	if execSSHConnectionKeepaliveInterval < 5*time.Second {
 		return fmt.Errorf("--exec-ssh-connection-keepalive-interval's value cannot be less than 5 seconds")
 	}
@@ -244,6 +265,20 @@ func runController(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	return controllerInstance.Run(cmd.Context())
+}
+
+func splitEtcdEndpoints(rawEndpoints string) []string {
+	var endpoints []string
+	for _, endpoint := range strings.Split(rawEndpoints, ",") {
+		endpoint = strings.TrimSpace(endpoint)
+		if endpoint == "" {
+			continue
+		}
+
+		endpoints = append(endpoints, endpoint)
+	}
+
+	return endpoints
 }
 
 func createBootstrapContext(

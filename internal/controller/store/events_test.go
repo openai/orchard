@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
-	"github.com/cirruslabs/orchard/internal/controller/store/badger"
 	"github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -12,9 +11,16 @@ import (
 
 func TestListEventsPage(t *testing.T) {
 	logger := zap.NewNop().Sugar()
-	store, err := badger.NewBadgerStore(t.TempDir(), true, logger)
-	require.NoError(t, err)
 
+	for _, storeImpl := range testStores(logger) {
+		t.Run(storeImpl.Name, func(t *testing.T) {
+			store := storeImpl.Init(t)
+			testListEventsPage(t, store)
+		})
+	}
+}
+
+func testListEventsPage(t *testing.T, store storepkg.Store) {
 	events := []v1.Event{
 		{Kind: v1.EventKindLogLine, Timestamp: 1, Payload: "one"},
 		{Kind: v1.EventKindLogLine, Timestamp: 2, Payload: "two"},
@@ -22,7 +28,7 @@ func TestListEventsPage(t *testing.T) {
 		{Kind: v1.EventKindLogLine, Timestamp: 4, Payload: "four"},
 	}
 
-	err = store.Update(func(txn storepkg.Transaction) error {
+	err := store.Update(func(txn storepkg.Transaction) error {
 		return txn.AppendEvents(events, "vms", "vm-uid")
 	})
 	require.NoError(t, err)

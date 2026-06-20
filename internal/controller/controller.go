@@ -17,6 +17,7 @@ import (
 	"github.com/cirruslabs/orchard/internal/controller/sshserver"
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
 	"github.com/cirruslabs/orchard/internal/controller/store/badger"
+	etcdstore "github.com/cirruslabs/orchard/internal/controller/store/etcd"
 	"github.com/cirruslabs/orchard/internal/netconstants"
 	"github.com/cirruslabs/orchard/internal/opentelemetry"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
@@ -59,6 +60,9 @@ type Controller struct {
 	execSSHConnectionKeepaliveInterval time.Duration
 	experimentalRPCV2                  bool
 	disableDBCompression               bool
+	storeBackend                       StoreBackend
+	etcdEndpoints                      []string
+	etcdKeyPrefix                      string
 	pingInterval                       time.Duration
 	synthetic                          bool
 
@@ -108,8 +112,7 @@ func New(opts ...Option) (*Controller, error) {
 	)
 
 	// Instantiate the database
-	store, err := badger.NewBadgerStore(controller.dataDir.DBPath(), controller.disableDBCompression,
-		controller.logger)
+	store, err := controller.initStore()
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +199,18 @@ func New(opts ...Option) (*Controller, error) {
 	}
 
 	return controller, nil
+}
+
+func (controller *Controller) initStore() (storepkg.Store, error) {
+	switch controller.storeBackend {
+	case "", StoreBackendBadger:
+		return badger.NewBadgerStore(controller.dataDir.DBPath(), controller.disableDBCompression,
+			controller.logger)
+	case StoreBackendEtcd:
+		return etcdstore.NewEtcdStore(controller.etcdEndpoints, controller.etcdKeyPrefix, controller.logger)
+	default:
+		return nil, fmt.Errorf("%w: unsupported store backend %q", ErrInitFailed, controller.storeBackend)
+	}
 }
 
 func (controller *Controller) vmsEnsurePlatformDefaults() error {
