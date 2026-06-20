@@ -28,6 +28,7 @@ type Transaction struct {
 	prefixReadRevisions map[string]int64
 	puts                map[string]string
 	deletes             map[string]struct{}
+	prefixDeletes       map[string]struct{}
 }
 
 func NewEtcdStore(endpoints []string, keyPrefix string, logger *zap.SugaredLogger) (storepkg.Store, error) {
@@ -77,6 +78,7 @@ func (store *Store) newTransaction(ctx context.Context) *Transaction {
 		prefixReadRevisions: map[string]int64{},
 		puts:                map[string]string{},
 		deletes:             map[string]struct{}{},
+		prefixDeletes:       map[string]struct{}{},
 	}
 }
 
@@ -92,7 +94,7 @@ func (store *Store) keyPrefix(logicalPrefix string) string {
 }
 
 func (txn *Transaction) commit() error {
-	if len(txn.puts) == 0 && len(txn.deletes) == 0 {
+	if len(txn.puts) == 0 && len(txn.deletes) == 0 && len(txn.prefixDeletes) == 0 {
 		return nil
 	}
 
@@ -108,7 +110,10 @@ func (txn *Transaction) commit() error {
 		comparisons = append(comparisons, clientv3.Compare(clientv3.ModRevision(prefix).WithPrefix(), "<", revision+1))
 	}
 
-	operations := make([]clientv3.Op, 0, len(txn.puts)+len(txn.deletes))
+	operations := make([]clientv3.Op, 0, len(txn.puts)+len(txn.deletes)+len(txn.prefixDeletes))
+	for prefix := range txn.prefixDeletes {
+		operations = append(operations, clientv3.OpDelete(prefix, clientv3.WithPrefix()))
+	}
 	for key, value := range txn.puts {
 		if _, deleted := txn.deletes[key]; deleted {
 			continue
@@ -129,6 +134,20 @@ func (txn *Transaction) commit() error {
 	}
 
 	return nil
+}
+
+func (txn *Transaction) isDeleted(key string) bool {
+	if _, deleted := txn.deletes[key]; deleted {
+		return true
+	}
+
+	for prefix := range txn.prefixDeletes {
+		if hasPrefix(key, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func normalizePrefix(prefix string) string {

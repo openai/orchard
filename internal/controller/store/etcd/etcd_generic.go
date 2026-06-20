@@ -23,9 +23,6 @@ func genericGet[T any, PT interface {
 	SetVersion(uint64)
 	*T
 }](txn *Transaction, key string) (*T, error) {
-	if _, deleted := txn.deletes[key]; deleted {
-		return nil, storepkg.ErrNotFound
-	}
 	if value, ok := txn.puts[key]; ok {
 		var obj T
 		if err := json.Unmarshal([]byte(value), &obj); err != nil {
@@ -33,6 +30,9 @@ func genericGet[T any, PT interface {
 		}
 
 		return &obj, nil
+	}
+	if txn.isDeleted(key) {
+		return nil, storepkg.ErrNotFound
 	}
 
 	response, err := txn.store.client.Get(txn.ctx, key)
@@ -101,7 +101,7 @@ func genericList[T any, PT interface {
 
 	result := []T{}
 	for _, key := range keys {
-		if _, deleted := txn.deletes[key]; deleted {
+		if txn.isDeleted(key) {
 			continue
 		}
 

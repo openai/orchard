@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"sort"
 	"time"
 
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
@@ -63,78 +62,32 @@ func (txn *Transaction) ListEventsPage(options storepkg.ListOptions, scope ...st
 
 	logicalPrefix := scopePrefix(scope)
 	physicalPrefix := txn.store.keyPrefix(logicalPrefix)
-	response, err := txn.store.client.Get(txn.ctx, physicalPrefix, clientv3.WithPrefix(), clientv3.WithSort(
-		clientv3.SortByKey, clientv3.SortAscend,
-	))
+	getKey, getOptions := txn.listEventsPageQueryOptions(physicalPrefix, logicalPrefix, options)
+	response, err := txn.store.client.Get(txn.ctx, getKey, getOptions...)
 	if err != nil {
 		return result, mapErr(err)
 	}
 	txn.prefixReadRevisions[physicalPrefix] = response.Header.Revision
 
-	type keyedEvent struct {
-		key   string
-		event v1.Event
-	}
-
-	keyedEventsByKey := map[string]v1.Event{}
+	limit := options.Limit
 	for _, kv := range response.Kvs {
+		key := string(kv.Key)
+		if txn.isDeleted(key) {
+			continue
+		}
+
 		var event v1.Event
 		if err := json.Unmarshal(kv.Value, &event); err != nil {
 			return result, err
 		}
-
-		keyedEventsByKey[string(kv.Key)] = event
-	}
-
-	for key, value := range txn.puts {
-		if !hasPrefix(key, physicalPrefix) {
-			continue
-		}
-
-		var event v1.Event
-		if err := json.Unmarshal([]byte(value), &event); err != nil {
-			return result, err
-		}
-		keyedEventsByKey[key] = event
-	}
-
-	keyedEvents := make([]keyedEvent, 0, len(keyedEventsByKey))
-	for key, event := range keyedEventsByKey {
-		if _, deleted := txn.deletes[key]; deleted {
-			continue
-		}
-
-		keyedEvents = append(keyedEvents, keyedEvent{key: key, event: event})
-	}
-
-	sort.Slice(keyedEvents, func(i, j int) bool {
-		if options.Order == storepkg.ListOrderDesc {
-			return keyedEvents[i].key > keyedEvents[j].key
-		}
-
-		return keyedEvents[i].key < keyedEvents[j].key
-	})
-
-	startIndex := 0
-	if len(options.Cursor) > 0 {
-		cursor := eventCursor(physicalPrefix, logicalPrefix, options.Cursor)
-		for index, keyedEvent := range keyedEvents {
-			if keyedEvent.key == cursor {
-				startIndex = index + 1
-				break
-			}
-		}
-	}
-
-	for index := startIndex; index < len(keyedEvents); index++ {
-		result.Items = append(result.Items, keyedEvents[index].event)
-
-		if options.Limit > 0 && len(result.Items) >= options.Limit {
-			if index+1 < len(keyedEvents) {
-				result.NextCursor = bytes.TrimPrefix([]byte(keyedEvents[index].key), []byte(physicalPrefix))
-			}
-
+		if limit > 0 && len(result.Items) >= limit {
 			break
+		}
+
+		result.Items = append(result.Items, event)
+
+		if limit > 0 && len(result.Items) == limit && len(response.Kvs) > limit {
+			result.NextCursor = bytes.TrimPrefix([]byte(key), []byte(physicalPrefix))
 		}
 	}
 
@@ -143,18 +96,52 @@ func (txn *Transaction) ListEventsPage(options storepkg.ListOptions, scope ...st
 
 func (txn *Transaction) DeleteEvents(scope ...string) error {
 	physicalPrefix := txn.store.keyPrefix(scopePrefix(scope))
-	response, err := txn.store.client.Get(txn.ctx, physicalPrefix, clientv3.WithPrefix(), clientv3.WithKeysOnly())
+	response, err := txn.store.client.Get(txn.ctx, physicalPrefix, clientv3.WithPrefix(), clientv3.WithKeysOnly(),
+		clientv3.WithLimit(1))
 	if err != nil {
 		return mapErr(err)
 	}
 	txn.prefixReadRevisions[physicalPrefix] = response.Header.Revision
 
-	for _, kv := range response.Kvs {
-		txn.deletes[string(kv.Key)] = struct{}{}
-		delete(txn.puts, string(kv.Key))
+	txn.prefixDeletes[physicalPrefix] = struct{}{}
+	for key := range txn.puts {
+		if hasPrefix(key, physicalPrefix) {
+			delete(txn.puts, key)
+		}
 	}
 
 	return nil
+}
+
+func (txn *Transaction) listEventsPageQueryOptions(
+	physicalPrefix string,
+	logicalPrefix string,
+	options storepkg.ListOptions,
+) (string, []clientv3.OpOption) {
+	rangeEnd := clientv3.GetPrefixRangeEnd(physicalPrefix)
+	getKey := physicalPrefix
+	getRangeEnd := rangeEnd
+	if len(options.Cursor) > 0 {
+		cursor := eventCursor(physicalPrefix, logicalPrefix, options.Cursor)
+		if options.Order == storepkg.ListOrderDesc {
+			getRangeEnd = cursor
+		} else {
+			getKey = cursor + "\x00"
+		}
+	}
+
+	getOptions := []clientv3.OpOption{
+		clientv3.WithRange(getRangeEnd),
+		clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend),
+	}
+	if options.Order == storepkg.ListOrderDesc {
+		getOptions[1] = clientv3.WithSort(clientv3.SortByKey, clientv3.SortDescend)
+	}
+	if options.Limit > 0 {
+		getOptions = append(getOptions, clientv3.WithLimit(int64(options.Limit+1)))
+	}
+
+	return getKey, getOptions
 }
 
 func eventCursor(physicalPrefix, logicalPrefix string, cursor []byte) string {
