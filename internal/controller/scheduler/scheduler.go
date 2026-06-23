@@ -36,6 +36,7 @@ type Scheduler struct {
 	store                storepkg.Store
 	notifier             *notifier.Notifier
 	workerOfflineTimeout time.Duration
+	startedAt            time.Time
 	logger               *zap.SugaredLogger
 	schedulingRequested  chan bool
 
@@ -87,6 +88,11 @@ func NewScheduler(
 }
 
 func (scheduler *Scheduler) Run() {
+	// Workers might have continued running VMs while the controller was
+	// unavailable. Give them a full offline timeout to reconnect before stale
+	// heartbeats can cause their VMs to be marked as failed.
+	scheduler.startedAt = time.Now()
+
 	for {
 		// wait either the scheduling interval or a request to schedule
 		select {
@@ -550,7 +556,8 @@ func (scheduler *Scheduler) healthCheckVM(txn storepkg.Transaction, vm v1.VM) er
 		return err
 	}
 
-	if worker.Offline(scheduler.workerOfflineTimeout) && !vm.TerminalState() {
+	if scheduler.workerFailureChecksEnabled(time.Now()) &&
+		worker.Offline(scheduler.workerOfflineTimeout) && !vm.TerminalState() {
 		vm.Status = v1.VMStatusFailed
 		vm.StatusMessage = "VM is assigned to a worker that " +
 			"lost connection with the controller"
@@ -587,4 +594,8 @@ func (scheduler *Scheduler) healthCheckVM(txn storepkg.Transaction, vm v1.VM) er
 	}
 
 	return nil
+}
+
+func (scheduler *Scheduler) workerFailureChecksEnabled(now time.Time) bool {
+	return scheduler.startedAt.IsZero() || now.Sub(scheduler.startedAt) > scheduler.workerOfflineTimeout
 }
