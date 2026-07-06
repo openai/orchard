@@ -48,8 +48,12 @@ brews:
     ids:
       - regular
     repository:
-      owner: cirruslabs
-      name: homebrew-cli
+      owner: openai
+      name: homebrew-tools
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      branch: "orchard-{{ .Version }}"
+      pull_request:
+        enabled: true
     install: |
       bin.install "orchard"
       generate_completions_from_executable(bin/"orchard", "completion")
