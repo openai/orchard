@@ -45,6 +45,7 @@ notarize:
 
 brews:
   - name: orchard
+    directory: Formula
     ids:
       - regular
     repository:

@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   release:
-    name: ${{ github.ref_type == 'tag' && 'Release Binaries' || 'Release Binaries (Dry Run)' }}
+    name: Release Binaries
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: publish
@@ -24,7 +25,6 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Create release app token for this repo
-        if: github.ref_type == 'tag'
         id: app-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
@@ -32,7 +32,6 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
       - name: Create release app token for homebrew-tools
-        if: github.ref_type == 'tag'
         id: tap-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
@@ -43,7 +42,6 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
       - name: Release
-        if: github.ref_type == 'tag'
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser-pro
@@ -58,22 +56,27 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+
+  snapshot:
+    name: Release Binaries (Dry Run)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Release dry run
-        if: github.ref_type != 'tag'
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser-pro
           version: "~> v2"
           args: release --skip=publish --snapshot --clean
-        env:
-          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
-          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
-          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
-          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
-          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
       - name: Upload dry-run artifacts
-        if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v6
         with:
           name: orchard-snapshot
