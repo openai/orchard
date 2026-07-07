@@ -56,7 +56,7 @@ jobs:
 
   test-macos:
     name: Test (macOS)
-    runs-on: ghcr.io/cirruslabs/macos-runner:tahoe
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
