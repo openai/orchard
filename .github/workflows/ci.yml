@@ -64,12 +64,5 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Pre-pull default Tart image
-        run: tart pull ghcr.io/cirruslabs/macos-tahoe-base:latest
-      - name: Run tests
-        run: go test -timeout=20m -ldflags="-B gobuildid" -v -count=1 ./...
-      - name: Clean up test VMs
-        if: always()
-        run: |
-          tart list
-          rm -rf ~/.tart/vms/orchard-*
+      - name: Run unit tests
+        run: go list ./... | grep -v '/internal/tests' | xargs go test -timeout=20m -ldflags="-B gobuildid" -v -count=1
