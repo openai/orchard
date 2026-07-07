@@ -32,7 +32,7 @@ Orchard is an orchestration system for [Tart](https://github.com/cirruslabs/tart
 The fastest way to get started with Orchard is to use a local development mode:
 
 ```shell
-brew install cirruslabs/cli/orchard
+brew install openai/tools/orchard
 orchard dev
 ```
 
