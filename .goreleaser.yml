@@ -43,6 +43,17 @@ notarize:
         key_id: "{{.Env.MACOS_NOTARY_KEY_ID}}"
         key: "{{.Env.MACOS_NOTARY_KEY}}"
 
+dockers_v2:
+  - images:
+      - ghcr.io/openai/orchard
+    tags:
+      - "{{ .Tag }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    disable: "{{ .IsSnapshot }}"
+
 brews:
   - name: orchard
     directory: Formula
