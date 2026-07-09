@@ -50,7 +50,7 @@ jobs:
           sudo setcap cap_net_raw,cap_net_admin+eip "$RUNNER_TEMP/vetu"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Pre-pull default Vetu image
-        run: vetu pull ghcr.io/cirruslabs/ubuntu-runner-amd64:latest
+        run: vetu pull ghcr.io/cirruslabs/ubuntu:latest
       - name: Run tests
         run: go test -v -count=1 ./...
 
