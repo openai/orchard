@@ -30,7 +30,7 @@ jobs:
 
   test-linux:
     name: Test (Linux)
-    runs-on: ghcr.io/cirruslabs/ubuntu-runner-amd64:24.04-md
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
