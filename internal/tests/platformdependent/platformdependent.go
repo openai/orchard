@@ -60,7 +60,7 @@ func CloneDefaultImage(ctx context.Context, logger *zap.SugaredLogger, destinati
 	case v1.OSDarwin:
 		_, _, err = tart.Tart(ctx, logger, "clone", image, destination)
 	default:
-		return fmt.Errorf("unsupported host OS: %q", hostOS)
+		return fmt.Errorf("%w: %q", imageconstant.ErrUnsupportedPlatform, hostOS)
 	}
 
 	return err
@@ -78,7 +78,7 @@ func ListVMs(ctx context.Context, logger *zap.SugaredLogger) ([]vmmanager.VMInfo
 	case v1.OSDarwin:
 		return tart.List(ctx, logger)
 	default:
-		return nil, fmt.Errorf("unsupported host OS: %q", hostOS)
+		return nil, fmt.Errorf("%w: %q", imageconstant.ErrUnsupportedPlatform, hostOS)
 	}
 }
 
