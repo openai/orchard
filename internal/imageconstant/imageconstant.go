@@ -19,7 +19,12 @@ func DefaultImage(operatingSystem v1.OS, architecture v1.Architecture) (string, 
 	switch operatingSystem {
 	case v1.OSDarwin:
 		if architecture != v1.ArchitectureARM64 {
-			return "", fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, operatingSystem, architecture)
+			return "", fmt.Errorf(
+				"%w: %s/%s",
+				ErrUnsupportedPlatform,
+				operatingSystem,
+				architecture,
+			)
 		}
 
 		return DefaultMacosImage, nil
@@ -30,7 +35,12 @@ func DefaultImage(operatingSystem v1.OS, architecture v1.Architecture) (string, 
 		case v1.ArchitectureARM64:
 			return DefaultLinuxARM64Image, nil
 		default:
-			return "", fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, operatingSystem, architecture)
+			return "", fmt.Errorf(
+				"%w: %s/%s",
+				ErrUnsupportedPlatform,
+				operatingSystem,
+				architecture,
+			)
 		}
 	default:
 		return "", fmt.Errorf("%w: %s/%s", ErrUnsupportedPlatform, operatingSystem, architecture)
