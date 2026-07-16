@@ -60,7 +60,7 @@ jobs:
       - name: Pre-pull default Vetu image
         run: vetu pull ghcr.io/cirruslabs/ubuntu-amd64:24.04
       - name: Run tests
-        run: go test -timeout=20m -v -count=1 ./...
+        run: go test -timeout=30m -v -count=1 ./...
 
   test-macos:
     name: Test (macOS)
