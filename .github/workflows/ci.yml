@@ -49,6 +49,12 @@ jobs:
           go build -o "$RUNNER_TEMP/vetu" cmd/vetu/main.go
           sudo setcap cap_net_raw,cap_net_admin+eip "$RUNNER_TEMP/vetu"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Install Cloud Hypervisor
+        run: |
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/cloud-hypervisor" \
+            https://github.com/cloud-hypervisor/cloud-hypervisor/releases/latest/download/cloud-hypervisor-static-aarch64
+          chmod +x "$RUNNER_TEMP/cloud-hypervisor"
       - name: Pre-pull default Vetu image
         run: vetu pull ghcr.io/cirruslabs/ubuntu:latest
       - name: Run tests
