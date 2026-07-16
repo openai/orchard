@@ -14,7 +14,7 @@ func TestHTTPClientForWebSocketHonorsWait(t *testing.T) {
 	devClient, err := New(WithAddress("http://localhost"))
 	require.NoError(t, err)
 
-	httpClient := devClient.httpClientForWebSocket(map[string]string{"wait": "120"})
+	httpClient := devClient.httpClientForWebSocket(map[string]string{waitParameterName: "120"})
 
 	require.Equal(t, 150*time.Second, httpClient.Timeout)
 	require.Same(t, devClient.httpClient.Transport, httpClient.Transport)
@@ -28,7 +28,12 @@ func TestExecSessionBuildsReconnectableQuery(t *testing.T) {
 			query = request.URL.Query()
 
 			conn, err := websocket.Accept(writer, request, nil)
-			require.NoError(t, err)
+			if err != nil {
+				t.Errorf("failed to accept WebSocket connection: %v", err)
+
+				return
+			}
+
 			defer conn.CloseNow()
 		}),
 	)
@@ -58,6 +63,6 @@ func TestExecSessionBuildsReconnectableQuery(t *testing.T) {
 	require.Equal(t, []string{"80"}, query["cols"])
 	require.Equal(t, []string{"hello"}, query["env[GREETING]"])
 	require.Equal(t, []string{"/tmp"}, query["workdir"])
-	require.Equal(t, []string{"7"}, query["wait"])
+	require.Equal(t, []string{"7"}, query[waitParameterName])
 	require.Equal(t, []string{"resume-me"}, query["session"])
 }

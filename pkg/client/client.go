@@ -26,7 +26,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-const defaultHTTPTimeout = 30 * time.Second
+const (
+	defaultHTTPTimeout = 30 * time.Second
+	waitParameterName  = "wait"
+)
 
 type APIError struct {
 	StatusCode int
@@ -340,30 +343,6 @@ func (client *Client) wsRequestRaw(
 	return conn, nil
 }
 
-func (client *Client) httpClientForWebSocket(params map[string]string) *http.Client {
-	waitRaw, ok := params["wait"]
-	if !ok {
-		return client.httpClient
-	}
-
-	waitSeconds, err := strconv.ParseUint(waitRaw, 10, 16)
-	if err != nil {
-		return client.httpClient
-	}
-
-	waitTimeout := time.Duration(waitSeconds)*time.Second + defaultHTTPTimeout
-	if client.httpClient.Timeout == 0 || client.httpClient.Timeout >= waitTimeout {
-		return client.httpClient
-	}
-
-	return &http.Client{
-		CheckRedirect: client.httpClient.CheckRedirect,
-		Jar:           client.httpClient.Jar,
-		Timeout:       waitTimeout,
-		Transport:     client.httpClient.Transport,
-	}
-}
-
 func (client *Client) formatPath(path string) *url.URL {
 	endpointURL := &url.URL{
 		Scheme: client.baseURL.Scheme,
@@ -422,5 +401,29 @@ func (client *Client) ClusterSettings() *ClusterSettingsService {
 func (client *Client) RPC() *RPCService {
 	return &RPCService{
 		client: client,
+	}
+}
+
+func (client *Client) httpClientForWebSocket(params map[string]string) *http.Client {
+	waitRaw, ok := params[waitParameterName]
+	if !ok {
+		return client.httpClient
+	}
+
+	waitSeconds, err := strconv.ParseUint(waitRaw, 10, 16)
+	if err != nil {
+		return client.httpClient
+	}
+
+	waitTimeout := time.Duration(waitSeconds)*time.Second + defaultHTTPTimeout
+	if client.httpClient.Timeout == 0 || client.httpClient.Timeout >= waitTimeout {
+		return client.httpClient
+	}
+
+	return &http.Client{
+		CheckRedirect: client.httpClient.CheckRedirect,
+		Jar:           client.httpClient.Jar,
+		Timeout:       waitTimeout,
+		Transport:     client.httpClient.Transport,
 	}
 }
