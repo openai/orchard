@@ -2,6 +2,7 @@ package platformdependent
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 
 	"github.com/cirruslabs/orchard/internal/imageconstant"
@@ -13,20 +14,29 @@ import (
 )
 
 func VM(name string) *v1.VM {
+	hostOS, hostArchitecture, err := hostPlatform()
+	if err != nil {
+		panic(err)
+	}
+
+	image, err := imageconstant.DefaultImage(hostOS, hostArchitecture)
+	if err != nil {
+		panic(err)
+	}
+
 	vm := &v1.VM{
 		Meta: v1.Meta{
 			Name: name,
 		},
-		Image:    imageconstant.DefaultMacosImage,
+		Image:    image,
 		CPU:      4,
 		Memory:   8 * 1024,
 		Headless: true,
 	}
 
-	if runtime.GOOS == "linux" {
-		vm.Image = imageconstant.DefaultLinuxImage
-		vm.OS = v1.OSLinux
-		vm.Arch = v1.Architecture(runtime.GOARCH)
+	if hostOS == v1.OSLinux {
+		vm.OS = hostOS
+		vm.Arch = hostArchitecture
 		vm.Runtime = v1.RuntimeVetu
 	}
 
@@ -34,26 +44,54 @@ func VM(name string) *v1.VM {
 }
 
 func CloneDefaultImage(ctx context.Context, logger *zap.SugaredLogger, destination string) error {
-	var err error
+	hostOS, hostArchitecture, err := hostPlatform()
+	if err != nil {
+		return err
+	}
 
-	if runtime.GOOS == "linux" {
-		_, _, err = vetu.Vetu(ctx, logger, "clone", imageconstant.DefaultLinuxImage, destination)
-	} else {
-		_, _, err = tart.Tart(ctx, logger, "clone", imageconstant.DefaultMacosImage, destination)
+	image, err := imageconstant.DefaultImage(hostOS, hostArchitecture)
+	if err != nil {
+		return err
+	}
+
+	switch hostOS {
+	case v1.OSLinux:
+		_, _, err = vetu.Vetu(ctx, logger, "clone", image, destination)
+	case v1.OSDarwin:
+		_, _, err = tart.Tart(ctx, logger, "clone", image, destination)
+	default:
+		return fmt.Errorf("unsupported host OS: %q", hostOS)
 	}
 
 	return err
 }
 
 func ListVMs(ctx context.Context, logger *zap.SugaredLogger) ([]vmmanager.VMInfo, error) {
-	var vms []vmmanager.VMInfo
-	var err error
-
-	if runtime.GOOS == "linux" {
-		vms, err = vetu.List(ctx, logger)
-	} else {
-		vms, err = tart.List(ctx, logger)
+	hostOS, _, err := hostPlatform()
+	if err != nil {
+		return nil, err
 	}
 
-	return vms, err
+	switch hostOS {
+	case v1.OSLinux:
+		return vetu.List(ctx, logger)
+	case v1.OSDarwin:
+		return tart.List(ctx, logger)
+	default:
+		return nil, fmt.Errorf("unsupported host OS: %q", hostOS)
+	}
+}
+
+func hostPlatform() (v1.OS, v1.Architecture, error) {
+	hostOS, err := v1.NewOSFromString(runtime.GOOS)
+	if err != nil {
+		return "", "", err
+	}
+
+	hostArchitecture, err := v1.NewArchitectureFromString(runtime.GOARCH)
+	if err != nil {
+		return "", "", err
+	}
+
+	return hostOS, hostArchitecture, nil
 }

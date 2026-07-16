@@ -30,7 +30,7 @@ jobs:
 
   test-linux:
     name: Test (Linux)
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
@@ -53,10 +53,10 @@ jobs:
         run: |
           curl --fail --location --retry 3 \
             --output "$RUNNER_TEMP/cloud-hypervisor" \
-            https://github.com/cloud-hypervisor/cloud-hypervisor/releases/latest/download/cloud-hypervisor-static-aarch64
+            https://github.com/cloud-hypervisor/cloud-hypervisor/releases/latest/download/cloud-hypervisor-static
           chmod +x "$RUNNER_TEMP/cloud-hypervisor"
       - name: Pre-pull default Vetu image
-        run: vetu pull ghcr.io/cirruslabs/ubuntu:latest
+        run: vetu pull ghcr.io/cirruslabs/ubuntu-amd64:24.04
       - name: Run tests
         run: go test -v -count=1 ./...
 
