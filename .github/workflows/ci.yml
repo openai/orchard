@@ -55,6 +55,8 @@ jobs:
             --output "$RUNNER_TEMP/cloud-hypervisor" \
             https://github.com/cloud-hypervisor/cloud-hypervisor/releases/latest/download/cloud-hypervisor-static
           chmod +x "$RUNNER_TEMP/cloud-hypervisor"
+      - name: Enable KVM access
+        run: sudo chmod 0666 /dev/kvm
       - name: Pre-pull default Vetu image
         run: vetu pull ghcr.io/cirruslabs/ubuntu-amd64:24.04
       - name: Run tests
