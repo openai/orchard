@@ -26,7 +26,7 @@ func VM(name string) *v1.VM {
 	if runtime.GOOS == "linux" {
 		vm.Image = imageconstant.DefaultLinuxImage
 		vm.OS = v1.OSLinux
-		vm.Arch = v1.ArchitectureAMD64
+		vm.Arch = v1.Architecture(runtime.GOARCH)
 		vm.Runtime = v1.RuntimeVetu
 	}
 
