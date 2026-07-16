@@ -4,21 +4,34 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 )
 
+func TestHTTPClientForWebSocketHonorsWait(t *testing.T) {
+	devClient, err := New(WithAddress("http://localhost"))
+	require.NoError(t, err)
+
+	httpClient := devClient.httpClientForWebSocket(map[string]string{"wait": "120"})
+
+	require.Equal(t, 150*time.Second, httpClient.Timeout)
+	require.Same(t, devClient.httpClient.Transport, httpClient.Transport)
+}
+
 func TestExecSessionBuildsReconnectableQuery(t *testing.T) {
 	var query map[string][]string
 
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		query = request.URL.Query()
+	server := httptest.NewServer(
+		http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			query = request.URL.Query()
 
-		conn, err := websocket.Accept(writer, request, nil)
-		require.NoError(t, err)
-		defer conn.CloseNow()
-	}))
+			conn, err := websocket.Accept(writer, request, nil)
+			require.NoError(t, err)
+			defer conn.CloseNow()
+		}),
+	)
 	defer server.Close()
 
 	devClient, err := New(WithAddress(server.URL))
