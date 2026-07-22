@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -19,7 +20,19 @@ func Cmd(
 	commandName string,
 	args ...string,
 ) (string, string, error) {
+	return CmdWithExtraFiles(ctx, logger, commandName, nil, args...)
+}
+
+func CmdWithExtraFiles(
+	ctx context.Context,
+	logger *zap.SugaredLogger,
+	commandName string,
+	extraFiles []*os.File,
+	args ...string,
+) (string, string, error) {
 	cmd := exec.CommandContext(ctx, commandName, args...)
+
+	cmd.ExtraFiles = extraFiles
 
 	var stdout, stderr bytes.Buffer
 
@@ -27,7 +40,14 @@ func Cmd(
 	cmd.Stderr = &stderr
 
 	logger.Debugf("running '%s %s'", commandName, strings.Join(args, " "))
-	err := cmd.Run()
+	err := cmd.Start()
+	for _, file := range extraFiles {
+		_ = file.Close()
+	}
+	if err == nil {
+		err = cmd.Wait()
+	}
+
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return "", "", fmt.Errorf("%s command not found in PATH, make sure %s is installed: %w",

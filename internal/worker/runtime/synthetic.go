@@ -37,6 +37,7 @@ func (synthetic *Synthetic) NewVM(
 	eventStreamer *client.EventStreamer,
 	vmPullTimeHistogram metric.Float64Histogram,
 	_ dialer.Dialer,
+	_ bool,
 	logger *zap.SugaredLogger,
 ) vmmanager.VM {
 	return syntheticpkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, logger)

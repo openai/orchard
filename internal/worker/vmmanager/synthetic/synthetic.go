@@ -92,6 +92,10 @@ func (vm *VM) SetResource(vmResource v1.VM) {
 	vm.resource.ObservedGeneration = vmResource.Generation
 }
 
+func (vm *VM) UpdateSoftnetPolicy(context.Context, []string, []string) error {
+	return nil
+}
+
 func (vm *VM) OnDiskName() ondiskname.OnDiskName {
 	return vm.onDiskName
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/cirruslabs/orchard/internal/dialer"
 	"github.com/cirruslabs/orchard/internal/worker/runtime"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
+	"github.com/samber/mo"
 	"go.uber.org/zap"
 )
 
@@ -49,6 +50,12 @@ func WithDialer(dialer dialer.Dialer) Option {
 func WithSynthetic() Option {
 	return func(worker *Worker) {
 		worker.runtime = runtime.NewSynthetic()
+	}
+}
+
+func WithSoftnetPolicyUpdates(enabled bool) Option {
+	return func(worker *Worker) {
+		worker.softnetPolicyUpdates = mo.Some(enabled)
 	}
 }
 

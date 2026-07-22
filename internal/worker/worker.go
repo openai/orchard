@@ -18,12 +18,15 @@ import (
 	"github.com/cirruslabs/orchard/internal/worker/platform"
 	"github.com/cirruslabs/orchard/internal/worker/runtime"
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager"
+	"github.com/cirruslabs/orchard/internal/worker/vmmanager/tart"
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/cirruslabs/orchard/rpc"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/dustin/go-humanize"
+	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
+	goversion "github.com/hashicorp/go-version"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -43,6 +46,8 @@ const (
 	rpcWatchReconnectMultiplier  = 2
 	rpcWatchHealthyInterval      = time.Second
 	onDiskVMSyncTimeout          = 30 * time.Second
+
+	tartVersionSoftnetPolicyUpdates = "2.34.0"
 )
 
 var (
@@ -65,6 +70,8 @@ type Worker struct {
 	defaultMemory uint64
 
 	runtime runtime.Runtime
+
+	softnetPolicyUpdates mo.Option[bool]
 
 	vmPullTimeHistogram metric.Float64Histogram
 
@@ -145,6 +152,17 @@ func New(client *client.Client, opts ...Option) (*Worker, error) {
 
 	if worker.logger == nil {
 		worker.logger = zap.NewNop().Sugar()
+	}
+
+	if worker.softnetPolicyUpdates.IsAbsent() &&
+		worker.runtime.ID() == v1.RuntimeTart && !worker.runtime.Synthetic() {
+		tartVersion, err := tart.Version(context.Background(), worker.logger)
+		if err != nil {
+			worker.logger.Warnf("failed to check whether Tart supports Softnet policy updates: %v", err)
+		} else {
+			minimumVersion := goversion.Must(goversion.NewSemver(tartVersionSoftnetPolicyUpdates))
+			worker.softnetPolicyUpdates = mo.Some(tartVersion.GreaterThanOrEqual(minimumVersion))
+		}
 	}
 
 	return worker, nil
@@ -572,6 +590,28 @@ func (worker *Worker) syncVMs(
 				return err
 			}
 		case ActionMonitorRunning:
+			currentVMResource := vm.Resource()
+
+			if worker.softnetPolicyUpdates.OrElse(false) &&
+				currentVMResource.SoftnetEnabled() && vmResource.SoftnetEnabled() &&
+				currentVMResource.SoftnetPolicyChanged(vmResource.VMSpec) {
+				if err := vm.UpdateSoftnetPolicy(ctx,
+					vmResource.NetSoftnetAllow, vmResource.NetSoftnetBlock); err != nil {
+					worker.logger.Warnf("failed to update Softnet policy in-place, "+
+						"falling back to restart: %v", err)
+				} else {
+					currentVMResource.NetSoftnetAllow = vmResource.NetSoftnetAllow
+					currentVMResource.NetSoftnetBlock = vmResource.NetSoftnetBlock
+
+					// Advance the generation only if no other spec changes remain
+					if cmp.Equal(currentVMResource.VMSpec, vmResource.VMSpec) {
+						currentVMResource = *vmResource
+					}
+
+					vm.SetResource(currentVMResource)
+				}
+			}
+
 			if err := worker.monitorRunningVM(ctx, vmResource, vm, updateVM); err != nil {
 				return err
 			}
@@ -834,7 +874,8 @@ func (worker *Worker) deleteVM(vm vmmanager.VM) error {
 func (worker *Worker) createVM(odn ondiskname.OnDiskName, vmResource v1.VM) {
 	eventStreamer := worker.client.VMs().StreamEvents(vmResource.Name)
 
-	vm := worker.runtime.NewVM(vmResource, eventStreamer, worker.vmPullTimeHistogram, worker.dialer, worker.logger)
+	vm := worker.runtime.NewVM(vmResource, eventStreamer, worker.vmPullTimeHistogram,
+		worker.dialer, worker.softnetPolicyUpdates.OrElse(false), worker.logger)
 
 	worker.vmm.Put(odn, vm)
 }

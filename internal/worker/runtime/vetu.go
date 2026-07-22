@@ -31,6 +31,7 @@ func (vetu *Vetu) NewVM(
 	eventStreamer *client.EventStreamer,
 	vmPullTimeHistogram metric.Float64Histogram,
 	dialer dialer.Dialer,
+	_ bool,
 	logger *zap.SugaredLogger,
 ) vmmanager.VM {
 	return vetupkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, dialer, logger)

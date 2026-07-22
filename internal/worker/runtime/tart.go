@@ -31,9 +31,10 @@ func (tart *Tart) NewVM(
 	eventStreamer *client.EventStreamer,
 	vmPullTimeHistogram metric.Float64Histogram,
 	dialer dialer.Dialer,
+	softnetPolicyUpdates bool,
 	logger *zap.SugaredLogger,
 ) vmmanager.VM {
-	return tartpkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, dialer, logger)
+	return tartpkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, dialer, softnetPolicyUpdates, logger)
 }
 
 func (tart *Tart) ListVMs(ctx context.Context, logger *zap.SugaredLogger) ([]vmmanager.VMInfo, error) {

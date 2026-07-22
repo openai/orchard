@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -191,6 +192,16 @@ type VMSpec struct {
 	NetSoftnetBlock      []string   `json:"netSoftnetBlock,omitempty"`
 	Suspendable          bool       `json:"suspendable,omitempty"`
 	PowerState           PowerState `json:"powerState,omitempty"`
+}
+
+func (vm VMSpec) SoftnetEnabled() bool {
+	return vm.NetSoftnetDeprecated || vm.NetSoftnet ||
+		len(vm.NetSoftnetAllow) != 0 || len(vm.NetSoftnetBlock) != 0
+}
+
+func (vm VMSpec) SoftnetPolicyChanged(other VMSpec) bool {
+	return !slices.Equal(vm.NetSoftnetAllow, other.NetSoftnetAllow) ||
+		!slices.Equal(vm.NetSoftnetBlock, other.NetSoftnetBlock)
 }
 
 type VMSpecReadOnly struct {
