@@ -24,7 +24,6 @@ import (
 	"github.com/cirruslabs/orchard/rpc"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/dustin/go-humanize"
-	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	goversion "github.com/hashicorp/go-version"
 	"github.com/samber/lo"
@@ -604,7 +603,7 @@ func (worker *Worker) syncVMs(
 					currentVMResource.NetSoftnetBlock = vmResource.NetSoftnetBlock
 
 					// Advance the generation only if no other spec changes remain
-					if cmp.Equal(currentVMResource.VMSpec, vmResource.VMSpec) {
+					if currentVMResource.SemanticallyEqual(vmResource.VMSpec) {
 						currentVMResource = *vmResource
 					}
 

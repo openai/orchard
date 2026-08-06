@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 // Meta is a common set of fields that apply to all resources managed by the Controller.
@@ -192,6 +195,11 @@ type VMSpec struct {
 	NetSoftnetBlock      []string   `json:"netSoftnetBlock,omitempty"`
 	Suspendable          bool       `json:"suspendable,omitempty"`
 	PowerState           PowerState `json:"powerState,omitempty"`
+}
+
+func (vm VMSpec) SemanticallyEqual(other VMSpec) bool {
+	// Treat omitted and explicitly empty collections as the same VM specification
+	return cmp.Equal(vm, other, cmpopts.EquateEmpty())
 }
 
 func (vm VMSpec) SoftnetEnabled() bool {

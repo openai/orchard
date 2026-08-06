@@ -19,7 +19,6 @@ import (
 	"github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/cirruslabs/orchard/rpc"
 	"github.com/gin-gonic/gin"
-	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -222,7 +221,7 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 				"transition: only suspendable VMs can be suspended"))
 		}
 
-		if cmp.Equal(dbVM.VMSpec, userVM.VMSpec) {
+		if dbVM.SemanticallyEqual(userVM.VMSpec) {
 			// Nothing was changed
 			return responder.JSON(http.StatusOK, dbVM)
 		}
