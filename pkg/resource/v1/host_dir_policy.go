@@ -58,10 +58,10 @@ func (policy HostDirPolicy) Validate(path string, readOnly bool) bool {
 		return false
 	}
 
-	return strings.HasPrefix(
-		strings.TrimSuffix(path, "/"),
-		strings.TrimSuffix(policy.PathPrefix, "/"),
-	)
+	path = strings.TrimSuffix(path, "/")
+	pathPrefix := strings.TrimSuffix(policy.PathPrefix, "/")
+
+	return path == pathPrefix || strings.HasPrefix(path, pathPrefix+"/")
 }
 
 func (policy HostDirPolicy) String() string {
