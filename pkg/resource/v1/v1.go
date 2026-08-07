@@ -32,6 +32,7 @@ type VM struct {
 	NetBridged      string          `json:"net-bridged,omitempty"`
 	Headless        bool            `json:"headless,omitempty"`
 	Nested          bool            `json:"nested,omitempty"`
+	NoAudio         bool            `json:"noAudio,omitempty"`
 
 	VMSpec
 	VMSpecReadOnly
