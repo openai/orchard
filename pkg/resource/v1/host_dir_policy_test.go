@@ -45,6 +45,11 @@ func TestHostDirPolicyValidate(t *testing.T) {
 }
 
 func TestHostDirPolicyValidatePathBoundary(t *testing.T) {
+	const (
+		localPathPrefix = "/src/"
+		githubURLPrefix = "https://github.com"
+	)
+
 	testCases := []struct {
 		name       string
 		pathPrefix string
@@ -53,13 +58,13 @@ func TestHostDirPolicyValidatePathBoundary(t *testing.T) {
 	}{
 		{
 			name:       "local policy allows its exact path",
-			pathPrefix: "/src/",
+			pathPrefix: localPathPrefix,
 			path:       "/src",
 			allowed:    true,
 		},
 		{
 			name:       "local policy allows descendants",
-			pathPrefix: "/src/",
+			pathPrefix: localPathPrefix,
 			path:       "/src/project",
 			allowed:    true,
 		},
@@ -67,11 +72,13 @@ func TestHostDirPolicyValidatePathBoundary(t *testing.T) {
 			name:       "local policy without trailing slash rejects sibling sharing its prefix",
 			pathPrefix: "/src",
 			path:       "/src-private",
+			allowed:    false,
 		},
 		{
 			name:       "local policy rejects sibling sharing its prefix",
-			pathPrefix: "/src/",
+			pathPrefix: localPathPrefix,
 			path:       "/src-private",
+			allowed:    false,
 		},
 		{
 			name:       "local root policy allows descendants",
@@ -83,33 +90,37 @@ func TestHostDirPolicyValidatePathBoundary(t *testing.T) {
 			name:       "local root policy rejects remote URLs",
 			pathPrefix: "/",
 			path:       "https://github.com/archive.tar.gz",
+			allowed:    false,
 		},
 		{
 			name:       "URL policy allows its exact host",
-			pathPrefix: "https://github.com/",
-			path:       "https://github.com",
+			pathPrefix: githubURLPrefix + "/",
+			path:       githubURLPrefix,
 			allowed:    true,
 		},
 		{
 			name:       "URL policy allows paths on its host",
-			pathPrefix: "https://github.com",
+			pathPrefix: githubURLPrefix,
 			path:       "https://github.com/actions/archive.tar.gz",
 			allowed:    true,
 		},
 		{
 			name:       "URL policy rejects lookalike host",
-			pathPrefix: "https://github.com",
+			pathPrefix: githubURLPrefix,
 			path:       "https://github.com.attacker.com/archive.tar.gz",
+			allowed:    false,
 		},
 		{
 			name:       "URL policy with trailing slash rejects lookalike host",
-			pathPrefix: "https://github.com/",
+			pathPrefix: githubURLPrefix + "/",
 			path:       "https://github.com.attacker.com/archive.tar.gz",
+			allowed:    false,
 		},
 		{
 			name:       "URL policy rejects host concealed by userinfo",
-			pathPrefix: "https://github.com",
+			pathPrefix: githubURLPrefix,
 			path:       "https://github.com@attacker.example/archive.tar.gz",
+			allowed:    false,
 		},
 		{
 			name:       "URL path policy allows descendants",
@@ -121,12 +132,13 @@ func TestHostDirPolicyValidatePathBoundary(t *testing.T) {
 			name:       "URL path policy rejects sibling sharing its prefix",
 			pathPrefix: "https://github.com/actions",
 			path:       "https://github.com/actions-private/archive.tar.gz",
+			allowed:    false,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			policy := v1.HostDirPolicy{PathPrefix: testCase.pathPrefix}
+			policy := v1.HostDirPolicy{PathPrefix: testCase.pathPrefix, ReadOnly: false}
 
 			require.Equal(t, testCase.allowed, policy.Validate(testCase.path, false))
 		})
