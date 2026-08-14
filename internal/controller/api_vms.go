@@ -34,6 +34,13 @@ func (controller *Controller) createVM(ctx *gin.Context) responder.Responder {
 		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid JSON was provided"))
 	}
 
+	// Host processes require an additional role
+	if len(vm.HostProcesses) != 0 {
+		if responder := controller.authorize(ctx, v1.ServiceAccountRoleHostProcessWrite); responder != nil {
+			return responder
+		}
+	}
+
 	if vm.Name == "" {
 		return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("VM name is empty"))
 	} else if err := simplename.Validate(vm.Name); err != nil {
@@ -122,6 +129,11 @@ func (controller *Controller) createVM(ctx *gin.Context) responder.Responder {
 		vm.RestartPolicy = v1.RestartPolicyNever
 	}
 
+	// Validate hostProcesses
+	if err := v1.ValidateHostProcesses(vm.HostProcesses); err != nil {
+		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid host processes: %v", err))
+	}
+
 	// Validate hostDirs
 	if responder := controller.validateHostDirs(vm.HostDirs); responder != nil {
 		return responder
@@ -182,6 +194,14 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 			return responder.Error(err)
 		}
 
+		// Changes to host processes require an additional role
+		//nolint:staticcheck // Preserve the original explicit VMSpec comparison.
+		if !dbVM.VMSpec.HostProcessesEqual(userVM.VMSpec) {
+			if responder := controller.authorize(ctx, v1.ServiceAccountRoleHostProcessWrite); responder != nil {
+				return responder
+			}
+		}
+
 		if dbVM.TerminalState() {
 			return responder.JSON(http.StatusPreconditionFailed,
 				NewErrorResponse("cannot update VM in a terminal state"))
@@ -195,6 +215,11 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 
 		if err := userVM.Validate(); err != nil {
 			return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("%v", err))
+		}
+
+		// Validate hostProcesses
+		if err := v1.ValidateHostProcesses(userVM.HostProcesses); err != nil {
+			return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid host processes: %v", err))
 		}
 
 		// Softnet-specific logic: automatically enable Softnet when NetSoftnetAllow or NetSoftnetBlock are set

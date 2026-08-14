@@ -218,12 +218,14 @@ func (x *ResolveIPResult) GetIp() string {
 
 type WatchInstruction_PortForward struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// we can have multiple port forwards for the same vm/port pair
-	// let's distinguish them by a unique session
+	// Distinguish multiple port forwards to the same VM/port pair or a target
 	Session string `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
-	// can be empty to request port-forwarding to the worker itself
-	VmUid         string `protobuf:"bytes,2,opt,name=vm_uid,json=vmUid,proto3" json:"vm_uid,omitempty"`
-	Port          uint32 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	// Legacy port-forwarding destination that supports workers and VMs
+	VmUid string `protobuf:"bytes,2,opt,name=vm_uid,json=vmUid,proto3" json:"vm_uid,omitempty"`
+	Port  uint32 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	// Typed alternative to the legacy port-forwarding destination,
+	// adding support for host processes
+	Target        *WatchInstruction_PortForward_Target `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -277,6 +279,13 @@ func (x *WatchInstruction_PortForward) GetPort() uint32 {
 		return x.Port
 	}
 	return 0
+}
+
+func (x *WatchInstruction_PortForward) GetTarget() *WatchInstruction_PortForward_Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
 }
 
 type WatchInstruction_SyncVMs struct {
@@ -369,19 +378,148 @@ func (x *WatchInstruction_ResolveIP) GetVmUid() string {
 	return ""
 }
 
+// Target identifies where the worker forwards the byte stream
+type WatchInstruction_PortForward_Target struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Value:
+	//
+	//	*WatchInstruction_PortForward_Target_HostProcess_
+	Value         isWatchInstruction_PortForward_Target_Value `protobuf_oneof:"value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchInstruction_PortForward_Target) Reset() {
+	*x = WatchInstruction_PortForward_Target{}
+	mi := &file_orchard_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchInstruction_PortForward_Target) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchInstruction_PortForward_Target) ProtoMessage() {}
+
+func (x *WatchInstruction_PortForward_Target) ProtoReflect() protoreflect.Message {
+	mi := &file_orchard_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchInstruction_PortForward_Target.ProtoReflect.Descriptor instead.
+func (*WatchInstruction_PortForward_Target) Descriptor() ([]byte, []int) {
+	return file_orchard_proto_rawDescGZIP(), []int{0, 0, 0}
+}
+
+func (x *WatchInstruction_PortForward_Target) GetValue() isWatchInstruction_PortForward_Target_Value {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *WatchInstruction_PortForward_Target) GetHostProcess() *WatchInstruction_PortForward_Target_HostProcess {
+	if x != nil {
+		if x, ok := x.Value.(*WatchInstruction_PortForward_Target_HostProcess_); ok {
+			return x.HostProcess
+		}
+	}
+	return nil
+}
+
+type isWatchInstruction_PortForward_Target_Value interface {
+	isWatchInstruction_PortForward_Target_Value()
+}
+
+type WatchInstruction_PortForward_Target_HostProcess_ struct {
+	HostProcess *WatchInstruction_PortForward_Target_HostProcess `protobuf:"bytes,1,opt,name=host_process,json=hostProcess,proto3,oneof"`
+}
+
+func (*WatchInstruction_PortForward_Target_HostProcess_) isWatchInstruction_PortForward_Target_Value() {
+}
+
+// Forward the byte stream to a host process, identified by
+// a VM UID and a host process name
+type WatchInstruction_PortForward_Target_HostProcess struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	VmUid         string                 `protobuf:"bytes,1,opt,name=vm_uid,json=vmUid,proto3" json:"vm_uid,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchInstruction_PortForward_Target_HostProcess) Reset() {
+	*x = WatchInstruction_PortForward_Target_HostProcess{}
+	mi := &file_orchard_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchInstruction_PortForward_Target_HostProcess) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchInstruction_PortForward_Target_HostProcess) ProtoMessage() {}
+
+func (x *WatchInstruction_PortForward_Target_HostProcess) ProtoReflect() protoreflect.Message {
+	mi := &file_orchard_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchInstruction_PortForward_Target_HostProcess.ProtoReflect.Descriptor instead.
+func (*WatchInstruction_PortForward_Target_HostProcess) Descriptor() ([]byte, []int) {
+	return file_orchard_proto_rawDescGZIP(), []int{0, 0, 0, 0}
+}
+
+func (x *WatchInstruction_PortForward_Target_HostProcess) GetVmUid() string {
+	if x != nil {
+		return x.VmUid
+	}
+	return ""
+}
+
+func (x *WatchInstruction_PortForward_Target_HostProcess) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
 var File_orchard_proto protoreflect.FileDescriptor
 
 const file_orchard_proto_rawDesc = "" +
 	"\n" +
-	"\rorchard.proto\x1a\x1bgoogle/protobuf/empty.proto\"\x9a\x03\n" +
+	"\rorchard.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xfe\x04\n" +
 	"\x10WatchInstruction\x12O\n" +
 	"\x13port_forward_action\x18\x01 \x01(\v2\x1d.WatchInstruction.PortForwardH\x00R\x11portForwardAction\x12C\n" +
 	"\x0fsync_vms_action\x18\x02 \x01(\v2\x19.WatchInstruction.SyncVMsH\x00R\rsyncVmsAction\x12I\n" +
-	"\x11resolve_ip_action\x18\x03 \x01(\v2\x1b.WatchInstruction.ResolveIPH\x00R\x0fresolveIpAction\x1aR\n" +
+	"\x11resolve_ip_action\x18\x03 \x01(\v2\x1b.WatchInstruction.ResolveIPH\x00R\x0fresolveIpAction\x1a\xb5\x02\n" +
 	"\vPortForward\x12\x18\n" +
 	"\asession\x18\x01 \x01(\tR\asession\x12\x15\n" +
 	"\x06vm_uid\x18\x02 \x01(\tR\x05vmUid\x12\x12\n" +
-	"\x04port\x18\x03 \x01(\rR\x04port\x1a\t\n" +
+	"\x04port\x18\x03 \x01(\rR\x04port\x12<\n" +
+	"\x06target\x18\x04 \x01(\v2$.WatchInstruction.PortForward.TargetR\x06target\x1a\xa2\x01\n" +
+	"\x06Target\x12U\n" +
+	"\fhost_process\x18\x01 \x01(\v20.WatchInstruction.PortForward.Target.HostProcessH\x00R\vhostProcess\x1a8\n" +
+	"\vHostProcess\x12\x15\n" +
+	"\x06vm_uid\x18\x01 \x01(\tR\x05vmUid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04nameB\a\n" +
+	"\x05value\x1a\t\n" +
 	"\aSyncVMs\x1a<\n" +
 	"\tResolveIP\x12\x18\n" +
 	"\asession\x18\x01 \x01(\tR\asession\x12\x15\n" +
@@ -410,31 +548,35 @@ func file_orchard_proto_rawDescGZIP() []byte {
 	return file_orchard_proto_rawDescData
 }
 
-var file_orchard_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_orchard_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_orchard_proto_goTypes = []any{
-	(*WatchInstruction)(nil),             // 0: WatchInstruction
-	(*PortForwardData)(nil),              // 1: PortForwardData
-	(*ResolveIPResult)(nil),              // 2: ResolveIPResult
-	(*WatchInstruction_PortForward)(nil), // 3: WatchInstruction.PortForward
-	(*WatchInstruction_SyncVMs)(nil),     // 4: WatchInstruction.SyncVMs
-	(*WatchInstruction_ResolveIP)(nil),   // 5: WatchInstruction.ResolveIP
-	(*emptypb.Empty)(nil),                // 6: google.protobuf.Empty
+	(*WatchInstruction)(nil),                                // 0: WatchInstruction
+	(*PortForwardData)(nil),                                 // 1: PortForwardData
+	(*ResolveIPResult)(nil),                                 // 2: ResolveIPResult
+	(*WatchInstruction_PortForward)(nil),                    // 3: WatchInstruction.PortForward
+	(*WatchInstruction_SyncVMs)(nil),                        // 4: WatchInstruction.SyncVMs
+	(*WatchInstruction_ResolveIP)(nil),                      // 5: WatchInstruction.ResolveIP
+	(*WatchInstruction_PortForward_Target)(nil),             // 6: WatchInstruction.PortForward.Target
+	(*WatchInstruction_PortForward_Target_HostProcess)(nil), // 7: WatchInstruction.PortForward.Target.HostProcess
+	(*emptypb.Empty)(nil),                                   // 8: google.protobuf.Empty
 }
 var file_orchard_proto_depIdxs = []int32{
 	3, // 0: WatchInstruction.port_forward_action:type_name -> WatchInstruction.PortForward
 	4, // 1: WatchInstruction.sync_vms_action:type_name -> WatchInstruction.SyncVMs
 	5, // 2: WatchInstruction.resolve_ip_action:type_name -> WatchInstruction.ResolveIP
-	6, // 3: Controller.Watch:input_type -> google.protobuf.Empty
-	1, // 4: Controller.PortForward:input_type -> PortForwardData
-	2, // 5: Controller.ResolveIP:input_type -> ResolveIPResult
-	0, // 6: Controller.Watch:output_type -> WatchInstruction
-	1, // 7: Controller.PortForward:output_type -> PortForwardData
-	6, // 8: Controller.ResolveIP:output_type -> google.protobuf.Empty
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	6, // 3: WatchInstruction.PortForward.target:type_name -> WatchInstruction.PortForward.Target
+	7, // 4: WatchInstruction.PortForward.Target.host_process:type_name -> WatchInstruction.PortForward.Target.HostProcess
+	8, // 5: Controller.Watch:input_type -> google.protobuf.Empty
+	1, // 6: Controller.PortForward:input_type -> PortForwardData
+	2, // 7: Controller.ResolveIP:input_type -> ResolveIPResult
+	0, // 8: Controller.Watch:output_type -> WatchInstruction
+	1, // 9: Controller.PortForward:output_type -> PortForwardData
+	8, // 10: Controller.ResolveIP:output_type -> google.protobuf.Empty
+	8, // [8:11] is the sub-list for method output_type
+	5, // [5:8] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_orchard_proto_init() }
@@ -447,13 +589,16 @@ func file_orchard_proto_init() {
 		(*WatchInstruction_SyncVmsAction)(nil),
 		(*WatchInstruction_ResolveIpAction)(nil),
 	}
+	file_orchard_proto_msgTypes[6].OneofWrappers = []any{
+		(*WatchInstruction_PortForward_Target_HostProcess_)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orchard_proto_rawDesc), len(file_orchard_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

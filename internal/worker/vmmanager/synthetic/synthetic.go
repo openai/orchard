@@ -2,6 +2,7 @@ package synthetic
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"strings"
 	"sync"
@@ -41,13 +42,15 @@ func NewVM(
 		"vm_restart_count", vmResource.RestartCount,
 	)
 
+	onDiskName := ondiskname.NewFromResource(vmResource)
 	vm := &VM{
-		onDiskName: ondiskname.NewFromResource(vmResource),
+		onDiskName: onDiskName,
 		resource:   vmResource,
 		ctx:        ctx,
 		cancel:     cancel,
 		logger:     logger,
-		VM:         base.NewVM(logger),
+
+		VM: base.NewVM(vmResource, onDiskName, logger),
 	}
 
 	vm.wg.Add(1)
@@ -121,6 +124,8 @@ func (vm *VM) Start(eventStreamer *client.EventStreamer) {
 }
 
 func (vm *VM) Suspend() <-chan error {
+	vm.HostProcessSet().Stop()
+
 	vm.EndpointSet().Stop()
 	errChan := make(chan error, 1)
 
@@ -136,6 +141,8 @@ func (vm *VM) IP(ctx context.Context) (string, error) {
 }
 
 func (vm *VM) Stop() <-chan error {
+	vm.HostProcessSet().Stop()
+
 	vm.EndpointSet().Stop()
 	errChan := make(chan error, 1)
 
@@ -159,6 +166,13 @@ func (vm *VM) Delete() error {
 
 func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 	defer vm.ConditionsSet().RemoveAll(v1.ConditionTypeRunning, v1.ConditionTypeSuspending, v1.ConditionTypeStopping)
+
+	if err := vm.HostProcessSet().Start(ctx, vm.resource.HostProcesses); err != nil {
+		vm.SetErr(fmt.Errorf("failed to start host processes: %w", err))
+
+		return
+	}
+	defer vm.HostProcessSet().Stop()
 
 	vm.EndpointSet().Start()
 	defer vm.EndpointSet().Stop()

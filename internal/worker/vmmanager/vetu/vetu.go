@@ -66,7 +66,7 @@ func NewVM(
 
 		dialer: dialer,
 
-		VM: base.NewVM(logger),
+		VM: base.NewVM(vmResource, ondiskname.NewFromResource(vmResource), logger),
 	}
 
 	vm.wg.Add(1)

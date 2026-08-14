@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/cirruslabs/orchard/internal/responder"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/cirruslabs/orchard/rpc"
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	"time"
 )
 
+//nolint:protogetter // Preserve the original host-process wire conversion.
 func (controller *Controller) rpcWatch(ctx *gin.Context) responder.Responder {
 	if responder := controller.authorize(ctx, v1.ServiceAccountRoleComputeRead); responder != nil {
 		return responder
@@ -61,8 +63,20 @@ func (controller *Controller) rpcWatch(ctx *gin.Context) responder.Responder {
 			case *rpc.WatchInstruction_PortForwardAction:
 				watchInstruction.PortForwardAction = &v1.PortForwardAction{
 					Session: typedAction.PortForwardAction.Session,
-					VMUID:   typedAction.PortForwardAction.VmUid,
-					Port:    uint16(typedAction.PortForwardAction.Port),
+				}
+
+				if target := typedAction.PortForwardAction.GetTarget(); target != nil {
+					watchInstruction.PortForwardAction.Target = &v1.PortForwardTarget{}
+
+					if hostProcess := target.GetHostProcess(); hostProcess != nil {
+						watchInstruction.PortForwardAction.Target.HostProcess = &v1.PortForwardTargetHostProcess{
+							VMUID: hostProcess.VmUid,
+							Name:  hostProcess.Name,
+						}
+					}
+				} else {
+					watchInstruction.PortForwardAction.VMUID = typedAction.PortForwardAction.VmUid
+					watchInstruction.PortForwardAction.Port = uint16(typedAction.PortForwardAction.Port)
 				}
 			case *rpc.WatchInstruction_SyncVmsAction:
 				watchInstruction.SyncVMsAction = &v1.SyncVMsAction{}

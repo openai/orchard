@@ -50,5 +50,5 @@ func (controller *Controller) portForwardWorker(ctx *gin.Context) responder.Resp
 	}
 
 	// Commence port-forwarding
-	return controller.portForward(ctx, waitContext, worker.Name, "", uint32(port))
+	return controller.portForward(ctx, waitContext, worker.Name, "", uint32(port), "")
 }

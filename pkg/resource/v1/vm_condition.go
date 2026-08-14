@@ -13,8 +13,9 @@ type Condition struct {
 type ConditionType string
 
 const (
-	ConditionTypeScheduled ConditionType = "scheduled"
-	ConditionTypeRunning   ConditionType = "running"
+	ConditionTypeScheduled          ConditionType = "scheduled"
+	ConditionTypeRunning            ConditionType = "running"
+	ConditionTypeHostProcessesReady ConditionType = "host-processes-ready"
 
 	ConditionTypeCloning    ConditionType = "cloning"
 	ConditionTypeSuspending ConditionType = "suspending"

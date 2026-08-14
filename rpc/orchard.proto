@@ -18,12 +18,30 @@ service Controller {
 
 message WatchInstruction {
   message PortForward {
-    // we can have multiple port forwards for the same vm/port pair
-    // let's distinguish them by a unique session
+    // Target identifies where the worker forwards the byte stream
+    message Target {
+      // Forward the byte stream to a host process, identified by
+      // a VM UID and a host process name
+      message HostProcess {
+        string vm_uid = 1;
+        string name = 2;
+      }
+
+      oneof value {
+        HostProcess host_process = 1;
+      }
+    }
+
+    // Distinguish multiple port forwards to the same VM/port pair or a target
     string session = 1;
-    // can be empty to request port-forwarding to the worker itself
+
+    // Legacy port-forwarding destination that supports workers and VMs
     string vm_uid = 2;
     uint32 port = 3;
+
+    // Typed alternative to the legacy port-forwarding destination,
+    // adding support for host processes
+    Target target = 4;
   }
   message SyncVMs {
     // nothing for now

@@ -67,6 +67,7 @@ func (worker *Worker) watchRPC(ctx context.Context, operationCtx context.Context
 	}
 }
 
+//nolint:nestif,protogetter // Preserve the original host-process forwarding implementation.
 func (worker *Worker) handlePortForward(
 	ctx context.Context,
 	client rpc.ControllerClient,
@@ -87,47 +88,71 @@ func (worker *Worker) handlePortForward(
 		return
 	}
 
-	var host string
+	var targetConn net.Conn
 
-	if portForwardAction.VmUid == "" {
-		// Port-forwarding request to a worker
-		host = "localhost"
-	} else {
-		// Port-forwarding request to a VM, find that VM
-		vm, ok := lo.Find(worker.vmm.List(), func(item vmmanager.VM) bool {
-			return item.Resource().UID == portForwardAction.VmUid
-		})
-		if !ok {
-			worker.logger.Warnf("port forwarding failed: failed to get the VM: %v", err)
+	if target := portForwardAction.Target; target != nil {
+		// Sanity check
+		if portForwardAction.VmUid != "" || portForwardAction.Port != 0 {
+			worker.logger.Warn("port forwarding failed: target and legacy fields are mutually exclusive")
 
 			return
 		}
 
-		// Obtain VM's IP address
-		host, err = vm.IP(ctx)
+		// Retrieve the typed host process target, it's the only possible target right now
+		hostProcess := target.GetHostProcess()
+		if hostProcess == nil || hostProcess.VmUid == "" || hostProcess.Name == "" {
+			worker.logger.Warn("port forwarding failed: invalid or unsupported target")
+			return
+		}
+
+		// Dial host process
+		targetConn, err = worker.dialHostProcess(ctx, hostProcess.VmUid, hostProcess.Name)
 		if err != nil {
-			worker.logger.Warnf("port forwarding failed: failed to get VM's IP: %v", err)
+			worker.logger.Warnf("port forwarding failed: failed to connect to host process: %v", err)
+			return
+		}
+	} else {
+		var host string
+
+		if portForwardAction.VmUid == "" {
+			// Port-forwarding request to a worker
+			host = "localhost"
+		} else {
+			// Port-forwarding request to a VM, find that VM
+			vm, ok := lo.Find(worker.vmm.List(), func(item vmmanager.VM) bool {
+				return item.Resource().UID == portForwardAction.VmUid
+			})
+			if !ok {
+				worker.logger.Warnf("port forwarding failed: failed to get VM with UID %q",
+					portForwardAction.VmUid)
+
+				return
+			}
+
+			// Obtain VM's IP address
+			host, err = vm.IP(ctx)
+			if err != nil {
+				worker.logger.Warnf("port forwarding failed: failed to get VM's IP: %v", err)
+
+				return
+			}
+		}
+
+		// Connect to the VM's port
+		if worker.dialer != nil {
+			targetConn, err = worker.dialer.DialContext(ctx, "tcp",
+				fmt.Sprintf("%s:%d", host, portForwardAction.Port))
+		} else {
+			dialer := net.Dialer{}
+
+			targetConn, err = dialer.DialContext(ctx, "tcp",
+				fmt.Sprintf("%s:%d", host, portForwardAction.Port))
+		}
+		if err != nil {
+			worker.logger.Warnf("port forwarding failed: failed to connect to the VM: %v", err)
 
 			return
 		}
-	}
-
-	// Connect to the VM's port
-	var vmConn net.Conn
-
-	if worker.dialer != nil {
-		vmConn, err = worker.dialer.DialContext(ctx, "tcp",
-			fmt.Sprintf("%s:%d", host, portForwardAction.Port))
-	} else {
-		dialer := net.Dialer{}
-
-		vmConn, err = dialer.DialContext(ctx, "tcp",
-			fmt.Sprintf("%s:%d", host, portForwardAction.Port))
-	}
-	if err != nil {
-		worker.logger.Warnf("port forwarding failed: failed to connect to the VM: %v", err)
-
-		return
 	}
 
 	// Proxy bytes
@@ -143,7 +168,7 @@ func (worker *Worker) handlePortForward(
 		}),
 	}
 
-	_ = proxy.Connections(vmConn, grpcConn)
+	_ = proxy.Connections(targetConn, grpcConn)
 }
 
 func (worker *Worker) handleGetIP(

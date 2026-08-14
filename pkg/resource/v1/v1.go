@@ -150,6 +150,9 @@ func (vm *VM) Validate() error {
 
 	switch vm.Runtime {
 	case RuntimeVetu:
+		if len(vm.HostProcesses) != 0 {
+			return unsupportedFieldError("hostProcesses")
+		}
 		if vm.NetSoftnetDeprecated || vm.NetSoftnet {
 			return unsupportedFieldError("netSoftnet")
 		}
@@ -189,6 +192,7 @@ type VMSpec struct {
 	// so this field defaults to that when not set.
 	Runtime Runtime `json:"runtime,omitempty"`
 
+	HostProcesses        []HostProcess  `json:"hostProcesses,omitempty"`
 	Endpoints            []EndpointSpec `json:"endpoints,omitempty"`
 	NetSoftnetDeprecated bool           `json:"net-softnet,omitempty"` //nolint:tagliatelle // legacy JSON key
 	NetSoftnet           bool           `json:"netSoftnet,omitempty"`
@@ -201,6 +205,11 @@ type VMSpec struct {
 // SemanticallyEqual treats omitted and explicitly empty collections as equal.
 func SemanticallyEqual[T any](current, desired T) bool {
 	return cmp.Equal(current, desired, cmpopts.EquateEmpty())
+}
+
+func (vm VMSpec) HostProcessesEqual(other VMSpec) bool {
+	// Treat omitted and explicitly empty host process collections as the same specification
+	return cmp.Equal(vm.HostProcesses, other.HostProcesses, cmpopts.EquateEmpty())
 }
 
 func (vm VMSpec) SoftnetEnabled() bool {

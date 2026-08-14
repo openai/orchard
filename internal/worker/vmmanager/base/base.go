@@ -15,9 +15,12 @@ import (
 	"github.com/avast/retry-go/v4"
 	"github.com/cirruslabs/orchard/internal/dialer"
 	"github.com/cirruslabs/orchard/internal/worker/endpoint"
+	"github.com/cirruslabs/orchard/internal/worker/hostprocess"
+	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/samber/lo"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 )
@@ -43,16 +46,18 @@ type VM struct {
 
 	statusMessage atomic.Pointer[string]
 	err           atomic.Pointer[error]
+	hostProcesses *hostprocess.Set
 	endpoints     *endpoint.Set
 
 	logger *zap.SugaredLogger
 }
 
-func NewVM(logger *zap.SugaredLogger) *VM {
+func NewVM(vmResource v1.VM, onDiskName ondiskname.OnDiskName, logger *zap.SugaredLogger) *VM {
 	return &VM{
-		conditions: mapset.NewSet(v1.ConditionTypeCloning),
-		endpoints:  endpoint.NewSet(logger),
-		logger:     logger,
+		conditions:    mapset.NewSet(v1.ConditionTypeCloning),
+		hostProcesses: hostprocess.NewSet(vmResource.Worker, vmResource.Name, onDiskName),
+		endpoints:     endpoint.NewSet(logger),
+		logger:        logger,
 	}
 }
 
@@ -60,8 +65,16 @@ func (vm *VM) EndpointSet() *endpoint.Set {
 	return vm.endpoints
 }
 
+func (vm *VM) HostProcessSet() *hostprocess.Set {
+	return vm.hostProcesses
+}
+
 func (vm *VM) SetStarted(val bool) {
 	vm.started.Store(val)
+}
+
+func (vm *VM) Started() bool {
+	return vm.started.Load()
 }
 
 func (vm *VM) Status() v1.VMStatus {
@@ -113,6 +126,11 @@ func (vm *VM) Conditions() []v1.Condition {
 	// The worker must observe transitions before applying a new specification.
 	return []v1.Condition{
 		vm.conditionTypeToCondition(v1.ConditionTypeRunning),
+		{
+			Type: v1.ConditionTypeHostProcessesReady,
+			State: lo.Ternary(vm.HostProcessSet().Ready(),
+				v1.ConditionStateTrue, v1.ConditionStateFalse),
+		},
 		vm.conditionTypeToCondition(v1.ConditionTypeSuspending),
 		vm.conditionTypeToCondition(v1.ConditionTypeStopping),
 	}

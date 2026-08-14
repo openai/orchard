@@ -172,7 +172,7 @@ func newCloneTestVM(resource v1.VM) *VM {
 		onDiskName: ondiskname.NewFromResource(resource),
 		resource:   resource,
 		logger:     logger,
-		VM:         base.NewVM(logger),
+		VM:         base.NewVM(resource, ondiskname.NewFromResource(resource), logger),
 	}
 }
 

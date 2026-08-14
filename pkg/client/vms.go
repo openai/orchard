@@ -169,6 +169,19 @@ func (service *VMsService) PortForward(
 		})
 }
 
+func (service *VMsService) PortForwardHostProcess(
+	ctx context.Context,
+	name string,
+	hostProcessName string,
+	waitSeconds uint16,
+) (net.Conn, error) {
+	return service.client.wsRequest(ctx, fmt.Sprintf("vms/%s/port-forward", url.PathEscape(name)),
+		map[string]string{
+			"hostProcess": hostProcessName,
+			"wait":        strconv.FormatUint(uint64(waitSeconds), 10),
+		})
+}
+
 func (service *VMsService) Exec(
 	ctx context.Context,
 	name string,

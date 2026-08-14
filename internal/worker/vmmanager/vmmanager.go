@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/cirruslabs/orchard/internal/worker/endpoint"
+	"github.com/cirruslabs/orchard/internal/worker/hostprocess"
 	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
@@ -17,6 +18,8 @@ type VM interface {
 	OnDiskName() ondiskname.OnDiskName
 	ImageFQN() *string
 	EndpointSet() *endpoint.Set
+	HostProcessSet() *hostprocess.Set
+	Started() bool
 	Status() v1.VMStatus
 	StatusMessage() string
 	Err() error

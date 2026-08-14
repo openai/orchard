@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -33,14 +34,29 @@ func (controller *Controller) portForwardVM(ctx *gin.Context) responder.Responde
 
 	// Retrieve and parse path and query parameters
 	name := ctx.Param("name")
-
 	portRaw := ctx.Query("port")
-	port, err := strconv.ParseUint(portRaw, 10, 16)
-	if err != nil {
-		return responder.Code(http.StatusBadRequest)
-	}
-	if port < 1 || port > 65535 {
-		return responder.Code(http.StatusBadRequest)
+	hostProcess := ctx.Query("hostProcess")
+
+	// Host process connections require an additional role
+	var port uint64
+	var err error
+
+	if hostProcess != "" {
+		if responder := controller.authorizeAny(ctx, v1.ServiceAccountRoleHostProcessWrite,
+			v1.ServiceAccountRoleHostProcessConnect); responder != nil {
+			return responder
+		}
+
+		// Host process forwarding cannot also target a VM port
+		if portRaw != "" {
+			return responder.Code(http.StatusBadRequest)
+		}
+	} else {
+		// VM port forwarding requires a valid non-zero TCP port
+		port, err = strconv.ParseUint(portRaw, 10, 16)
+		if err != nil || port < 1 || port > 65535 {
+			return responder.Code(http.StatusBadRequest)
+		}
 	}
 
 	waitRaw := ctx.DefaultQuery("wait", "10")
@@ -58,8 +74,16 @@ func (controller *Controller) portForwardVM(ctx *gin.Context) responder.Responde
 		return responderImpl
 	}
 
+	// Verify that the requested host process is declared on the VM.
+	if hostProcess != "" && !lo.SomeBy(vm.HostProcesses, func(process v1.HostProcess) bool {
+		return process.Name == hostProcess
+	}) {
+		return responder.JSON(http.StatusNotFound,
+			NewErrorResponse("host process %q is not declared on VM %q", hostProcess, vm.Name))
+	}
+
 	// Commence port forwarding
-	return controller.portForward(ctx, waitContext, vm.Worker, vm.UID, uint32(port))
+	return controller.portForward(ctx, waitContext, vm.Worker, vm.UID, uint32(port), hostProcess)
 }
 
 func (controller *Controller) portForward(
@@ -68,6 +92,7 @@ func (controller *Controller) portForward(
 	workerName string,
 	vmUID string,
 	port uint32,
+	hostProcess string,
 ) responder.Responder {
 	// Request and wait for a connection with a worker
 	rendezvousConn, err := retry.NewWithData[net.Conn](
@@ -77,7 +102,7 @@ func (controller *Controller) portForward(
 		retry.Attempts(0),
 		retry.LastErrorOnly(true),
 	).Do(func() (net.Conn, error) {
-		return controller.portForwardConnection(ctx, notifyContext, workerName, vmUID, port)
+		return controller.portForwardConnection(ctx, notifyContext, workerName, vmUID, port, hostProcess)
 	})
 	if err != nil {
 		if errors.Is(err, errPortForwardRequest) {
@@ -200,6 +225,7 @@ func (controller *Controller) portForwardConnection(
 	workerName string,
 	vmUID string,
 	port uint32,
+	hostProcess string,
 ) (net.Conn, error) {
 	// Create a rendezvous connection point
 	rendezvousCtx, rendezvousCtxCancel := context.WithCancel(ctx)
@@ -213,13 +239,25 @@ func (controller *Controller) portForwardConnection(
 	}
 
 	// Send request to a worker to initiate a port forwarding connection back to us
+	portForwardAction := &rpc.WatchInstruction_PortForward{
+		Session: session,
+	}
+	if hostProcess != "" {
+		portForwardAction.Target = &rpc.WatchInstruction_PortForward_Target{
+			Value: &rpc.WatchInstruction_PortForward_Target_HostProcess_{
+				HostProcess: &rpc.WatchInstruction_PortForward_Target_HostProcess{
+					VmUid: vmUID,
+					Name:  hostProcess,
+				},
+			},
+		}
+	} else {
+		portForwardAction.VmUid = vmUID
+		portForwardAction.Port = port
+	}
 	err := controller.workerNotifier.Notify(waitContext, workerName, &rpc.WatchInstruction{
 		Action: &rpc.WatchInstruction_PortForwardAction{
-			PortForwardAction: &rpc.WatchInstruction_PortForward{
-				Session: session,
-				VmUid:   vmUID,
-				Port:    port,
-			},
+			PortForwardAction: portForwardAction,
 		},
 	})
 	if err != nil {

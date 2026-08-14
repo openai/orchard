@@ -87,7 +87,7 @@ func TestMonitorWaitsForStopBeforeApplyingGeneration(t *testing.T) {
 			require.NoError(t, err)
 			worker := &Worker{client: apiClient, runtime: runtime.NewSynthetic()}
 			vm := &delayedStopVM{
-				VM:          &synthetic.VM{VM: base.NewVM(zap.NewNop().Sugar())},
+				VM:          &synthetic.VM{VM: base.NewVM(v1.VM{}, ondiskname.OnDiskName{}, zap.NewNop().Sugar())},
 				resource:    v1.VM{Meta: v1.Meta{Name: "test-vm"}},
 				stopStarted: make(chan struct{}),
 				stopResult:  make(chan error),
