@@ -35,6 +35,7 @@ var experimentalRPCV2 bool
 var addressPprof string
 var synthetic bool
 var workers int
+var insecureAllowHostDirs bool
 
 func NewCommand() *cobra.Command {
 	command := &cobra.Command{
@@ -57,6 +58,8 @@ func NewCommand() *cobra.Command {
 	command.Flags().BoolVar(&synthetic, "synthetic", false,
 		"do not instantiate real Tart VM, use synthetic in-memory VMs suitable for load testing")
 	command.Flags().IntVar(&workers, "workers", 1, "number of workers to start")
+	command.Flags().BoolVar(&insecureAllowHostDirs, "insecure-allow-host-dirs", false,
+		"allow unsafe path-based local host directory sharing")
 
 	return command
 }
@@ -103,6 +106,10 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	if experimentalRPCV2 {
 		additionalControllerOpts = append(additionalControllerOpts, controller.WithExperimentalRPCV2())
+	}
+
+	if insecureAllowHostDirs {
+		additionalControllerOpts = append(additionalControllerOpts, controller.WithInsecureAllowHostDirs())
 	}
 
 	group, ctx := errgroup.WithContext(cmd.Context())

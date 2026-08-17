@@ -46,6 +46,7 @@ type Controller struct {
 	listener                           net.Listener
 	httpServer                         *http.Server
 	insecureAuthDisabled               bool
+	insecureAllowHostDirs              bool
 	scheduler                          *scheduler.Scheduler
 	store                              storepkg.Store
 	logger                             *zap.SugaredLogger
@@ -195,6 +196,14 @@ func New(opts ...Option) (*Controller, error) {
 		return nil, err
 	}
 
+	// When no "--insecure-allow-host-dirs" is present,
+	// fail the VMs that have "hostDirs" set
+	if !controller.insecureAllowHostDirs {
+		if err := controller.failVMsWithHostDirs(); err != nil {
+			return nil, err
+		}
+	}
+
 	return controller, nil
 }
 
@@ -302,6 +311,31 @@ func (controller *Controller) EnsureServiceAccount(serviceAccount *v1.ServiceAcc
 func (controller *Controller) DeleteServiceAccount(name string) error {
 	return controller.store.Update(func(txn storepkg.Transaction) error {
 		return txn.DeleteServiceAccount(name)
+	})
+}
+
+func (controller *Controller) failVMsWithHostDirs() error {
+	return controller.store.Update(func(txn storepkg.Transaction) error {
+		vms, err := txn.ListVMs()
+		if err != nil {
+			return err
+		}
+
+		for _, vm := range vms {
+			if vm.TerminalState() || len(vm.HostDirs) == 0 {
+				continue
+			}
+
+			vm.Status = v1.VMStatusFailed
+			vm.StatusMessage = "host directories are used, but host directory sharing is disabled"
+			vm.RestartPolicy = v1.RestartPolicyNever
+
+			if err := txn.SetVM(vm); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 

@@ -48,6 +48,12 @@ func WithInsecureAuthDisabled() Option {
 	}
 }
 
+func WithInsecureAllowHostDirs() Option {
+	return func(controller *Controller) {
+		controller.insecureAllowHostDirs = true
+	}
+}
+
 func WithSwaggerDocs() Option {
 	return func(controller *Controller) {
 		controller.enableSwaggerDocs = true

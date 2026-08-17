@@ -30,6 +30,7 @@ var addressPprof string
 var debug bool
 var noTLS bool
 var sshNoClientAuth bool
+var insecureAllowHostDirs bool
 var experimentalRPCV2 bool
 var noExperimentalRPCV2 bool
 var experimentalPingInterval time.Duration
@@ -74,6 +75,8 @@ func newRunCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&sshNoClientAuth, "insecure-ssh-no-client-auth", false,
 		"allow SSH clients to connect to the controller's SSH server without authentication, "+
 			"thus only authenticating on the target worker/VM's SSH server")
+	cmd.Flags().BoolVar(&insecureAllowHostDirs, "insecure-allow-host-dirs", false,
+		"allow unsafe path-based local host directory sharing")
 	cmd.Flags().BoolVar(&experimentalRPCV2, "experimental-rpc-v2", false,
 		"enable experimental RPC v2 (https://github.com/cirruslabs/orchard/issues/235)")
 	_ = cmd.Flags().MarkHidden("experimental-rpc-v2")
@@ -164,6 +167,10 @@ func runController(cmd *cobra.Command, args []string) (err error) {
 
 	if synthetic {
 		controllerOpts = append(controllerOpts, controller.WithSynthetic())
+	}
+
+	if insecureAllowHostDirs {
+		controllerOpts = append(controllerOpts, controller.WithInsecureAllowHostDirs())
 	}
 
 	var controllerCert tls.Certificate
