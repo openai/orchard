@@ -322,7 +322,10 @@ func (controller *Controller) failVMsWithHostDirs() error {
 		}
 
 		for _, vm := range vms {
-			if vm.TerminalState() || len(vm.HostDirs) == 0 {
+			permanentlyFailed := vm.TerminalState() &&
+				vm.RestartPolicy == v1.RestartPolicyNever
+
+			if permanentlyFailed || len(vm.HostDirs) == 0 {
 				continue
 			}
 
