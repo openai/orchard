@@ -475,12 +475,16 @@ func (worker *Worker) syncVMs(ctx context.Context, updateVM func(context.Context
 		case ActionStop:
 			// VM has failed on the remote side, stop it locally to prevent incorrect
 			// worker's resources calculation in the Controller's scheduler
-			vm.Stop()
+			if err := waitForVMStop(ctx, vm); err != nil {
+				return fmt.Errorf("failed to stop VM: %w", err)
+			}
 		case ActionFail, ActionLostTrack, ActionImpossible:
 			// VM has failed on the local side, stop it before reporting as failed to prevent incorrect
 			// worker's resources calculation in the Controller's scheduler
 			if vm != nil {
-				vm.Stop()
+				if err := waitForVMStop(ctx, vm); err != nil {
+					return fmt.Errorf("failed to stop VM: %w", err)
+				}
 			}
 
 			var statusMessage string
@@ -580,6 +584,15 @@ func (worker *Worker) syncOnDiskVMs(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func waitForVMStop(ctx context.Context, vm vmmanager.VM) error {
+	select {
+	case err := <-vm.Stop():
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (worker *Worker) deleteVM(vm vmmanager.VM) error {
