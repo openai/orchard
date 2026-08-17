@@ -791,7 +791,9 @@ components:
             model: macstudio
         hostDirs:
           type: array
-          description: Directories on the Orchard Worker host to mount to a VM
+          description: |
+            Directories on the Orchard Worker host to mount to a VM.
+            Requires running Orchard Controller with `--insecure-allow-host-dirs`.
           items:
             type: object
             properties:

@@ -372,12 +372,26 @@ func TestVMGarbageCollection(t *testing.T) {
 	}), "failed to wait for the VM %s to be garbage-collected", vmName)
 }
 
+func TestHostDirsDisabledByDefault(t *testing.T) {
+	devClient, _, _ := devcontroller.StartIntegrationTestEnvironment(t)
+
+	err := devClient.VMs().Create(context.Background(), &v1.VM{
+		Meta:     v1.Meta{Name: "test-host-dirs-disabled"},
+		Image:    imageconstant.DefaultMacosImage,
+		HostDirs: []v1.HostDir{{Name: "src", Path: "/Users/ci/src"}},
+	})
+	require.Error(t, err)
+}
+
 func TestHostDirs(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("HostDirs is only supported on macOS with Tart")
 	}
 
-	devClient, _, _ := devcontroller.StartIntegrationTestEnvironment(t)
+	devClient, _, _ := devcontroller.StartIntegrationTestEnvironmentWithAdditionalOpts(t,
+		false, []controller.Option{controller.WithInsecureAllowHostDirs()},
+		false, nil,
+	)
 
 	dirToMount := t.TempDir()
 
@@ -449,7 +463,10 @@ func TestHostDirsInvalidPolicy(t *testing.T) {
 		t.Skip("HostDirs is only supported on macOS with Tart")
 	}
 
-	devClient, _, _ := devcontroller.StartIntegrationTestEnvironment(t)
+	devClient, _, _ := devcontroller.StartIntegrationTestEnvironmentWithAdditionalOpts(t,
+		false, []controller.Option{controller.WithInsecureAllowHostDirs()},
+		false, nil,
+	)
 
 	dirToMount := t.TempDir()
 

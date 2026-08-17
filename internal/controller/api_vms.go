@@ -158,6 +158,10 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid JSON was provided"))
 	}
 
+	if responder := controller.validateHostDirs(userVM.HostDirs); responder != nil {
+		return responder
+	}
+
 	name := ctx.Param("name")
 
 	return controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
@@ -538,6 +542,14 @@ func decodeEventCursor(cursorRaw string) ([]byte, error) {
 func (controller *Controller) validateHostDirs(hostDirs []v1.HostDir) responder.Responder {
 	if len(hostDirs) == 0 {
 		return nil
+	}
+
+	if !controller.insecureAllowHostDirs {
+		return responder.JSON(
+			http.StatusBadRequest,
+			NewErrorResponse("host directory sharing is disabled; "+
+				"restart the controller with --insecure-allow-host-dirs to enable this unsafe feature"),
+		)
 	}
 
 	// Retrieve cluster settings

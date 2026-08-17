@@ -9,7 +9,6 @@ formatters:
     - gofmt
     - gofumpt
     - goimports
-    - golines
     - swaggo
 
 linters:
@@ -41,6 +40,7 @@ linters:
 
     # Style linters that are total nuts.
     - wsl
+    - wsl_v5
     - funlen
 
     # Enough parallelism for now.
@@ -69,6 +69,18 @@ linters:
 
     # Not all errors need to be checked
     - errcheck
+
+    # It's OK to not initialize some struct fields
+    - exhaustruct
+
+    # We'll control the variable name length ourselves
+    - varnamelen
+
+    # Inline error handling keeps assignment and checking together
+    - noinlineerr
+
+    # Avoid unrelated style churn for now
+    - funcorder
 
 issues:
   # Don't hide multiple issues that belong to one class since GitHub annotations can handle them all nicely.
