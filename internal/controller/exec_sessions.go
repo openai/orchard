@@ -251,24 +251,7 @@ func (subscriber *execSessionSubscriber) enqueue(frame *execstream.Frame) bool {
 	subscriber.sendMu.Lock()
 	defer subscriber.sendMu.Unlock()
 
-	if subscriber.alreadySentLocked(frame) {
-		return true
-	}
-
-	select {
-	case <-subscriber.closed:
-		return false
-	default:
-	}
-
-	select {
-	case subscriber.frames <- subscriber.markSentLocked(frame):
-		return true
-	case <-subscriber.closed:
-		return false
-	default:
-		return false
-	}
+	return subscriber.sendLocked(frame)
 }
 
 func (subscriber *execSessionSubscriber) sendHistory(frames []*execstream.Frame) bool {

@@ -266,6 +266,56 @@ func TestExecSessionHistoryReplayStreamsPastSubscriberBuffer(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestExecSessionLiveOutputAppliesBackpressure(t *testing.T) {
+	session := newManualExecSessionForTest(execSessionKey{vmName: "vm", sessionID: "session"}, nil)
+	session.policy = legacyExecSessionPolicy
+	t.Cleanup(session.close)
+
+	subscriber, err := session.attach()
+	require.NoError(t, err)
+
+	const frameCount = 256
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < frameCount; i++ {
+			session.recordFrame(&execstream.Frame{
+				Type: execstream.FrameTypeStdout,
+				Data: []byte{byte(i)},
+			})
+		}
+		session.recordFrame(&execstream.Frame{
+			Type: execstream.FrameTypeExit,
+			Exit: &execstream.Exit{Code: 0},
+		})
+	}()
+
+	require.Eventually(t, func() bool {
+		return len(subscriber.frames) == cap(subscriber.frames)
+	}, time.Second, time.Millisecond)
+
+	for i := 0; i < frameCount; i++ {
+		frame, ok := <-subscriber.frames
+		require.True(t, ok, "subscriber closed before output frame %d", i)
+		require.Equal(t, execstream.FrameTypeStdout, frame.Type)
+		require.Equal(t, []byte{byte(i)}, frame.Data)
+	}
+
+	exitFrame, ok := <-subscriber.frames
+	require.True(t, ok, "subscriber closed before the exit frame")
+	require.Equal(t, execstream.FrameTypeExit, exitFrame.Type)
+	require.EqualValues(t, 0, exitFrame.Exit.Code)
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+}
+
 func TestExecSessionDetachKeepsProcessAlive(t *testing.T) {
 	registry := newExecSessionRegistry()
 	session := newManualExecSessionForTest(execSessionKey{vmName: "vm", sessionID: "session"}, registry)
