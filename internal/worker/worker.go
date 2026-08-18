@@ -11,7 +11,6 @@ import (
 
 	goruntime "runtime"
 
-	"github.com/avast/retry-go/v4"
 	"github.com/cirruslabs/orchard/internal/dialer"
 	"github.com/cirruslabs/orchard/internal/opentelemetry"
 	"github.com/cirruslabs/orchard/internal/worker/dhcpleasetime"
@@ -38,9 +37,17 @@ import (
 const (
 	pollInterval                 = 5 * time.Second
 	workerResourceUpdateInterval = 15 * time.Second
+	recoveredVMProtectionPeriod  = 30 * time.Second
+	rpcWatchReconnectInterval    = 100 * time.Millisecond
+	rpcWatchReconnectMaxInterval = 5 * time.Second
+	rpcWatchReconnectMultiplier  = 2
+	rpcWatchHealthyInterval      = time.Second
 )
 
-var ErrPollFailed = errors.New("failed to poll controller")
+var (
+	ErrPollFailed           = errors.New("failed to poll controller")
+	errRPCWatchDisconnected = errors.New("RPC watch disconnected")
+)
 
 type Worker struct {
 	name          string
@@ -49,6 +56,7 @@ type Worker struct {
 	vmm           *vmmanager.VMManager
 	client        *client.Client
 	pollTicker    *time.Ticker
+	recoveredVMs  map[ondiskname.OnDiskName]time.Time
 	resources     v1.Resources
 	labels        v1.Labels
 
@@ -68,6 +76,7 @@ func New(client *client.Client, opts ...Option) (*Worker, error) {
 	worker := &Worker{
 		client:        client,
 		pollTicker:    time.NewTicker(pollInterval),
+		recoveredVMs:  make(map[ondiskname.OnDiskName]time.Time),
 		vmm:           vmmanager.New(),
 		syncRequested: make(chan bool, 1),
 	}
@@ -147,8 +156,20 @@ func (worker *Worker) Run(ctx context.Context) error {
 		}
 	}
 
+	var reconnectBackoff rpcWatchReconnectBackoff
+	reconnectBackoff.reset()
+
 	for {
-		if err := worker.runNewSession(ctx); err != nil {
+		if err := worker.runNewSession(ctx, reconnectBackoff.reset); err != nil {
+			if errors.Is(err, errRPCWatchDisconnected) {
+				select {
+				case <-time.After(reconnectBackoff.next()):
+					continue
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+
 			return err
 		}
 
@@ -159,6 +180,29 @@ func (worker *Worker) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
+}
+
+type rpcWatchReconnectBackoff struct {
+	nextInterval time.Duration
+}
+
+func (backoff *rpcWatchReconnectBackoff) next() time.Duration {
+	interval := backoff.nextInterval
+	if interval <= 0 {
+		interval = rpcWatchReconnectInterval
+	}
+
+	if interval >= rpcWatchReconnectMaxInterval/rpcWatchReconnectMultiplier {
+		backoff.nextInterval = rpcWatchReconnectMaxInterval
+	} else {
+		backoff.nextInterval = interval * rpcWatchReconnectMultiplier
+	}
+
+	return min(interval, rpcWatchReconnectMaxInterval)
+}
+
+func (backoff *rpcWatchReconnectBackoff) reset() {
+	backoff.nextInterval = rpcWatchReconnectInterval
 }
 
 func (worker *Worker) Close() error {
@@ -175,7 +219,7 @@ func (worker *Worker) Close() error {
 	return result
 }
 
-func (worker *Worker) runNewSession(ctx context.Context) error {
+func (worker *Worker) runNewSession(ctx context.Context, onWatchHealthy func()) error {
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -192,34 +236,24 @@ func (worker *Worker) runNewSession(ctx context.Context) error {
 		return nil
 	}
 
-	if info.Capabilities.Has(v1.ControllerCapabilityRPCV2) {
-		worker.logger.Infof("using WebSocket-based v2 RPC")
-
-		go func() {
-			_ = retry.Do(func() error {
-				return worker.watchRPCV2(subCtx)
-			}, retry.OnRetry(func(n uint, err error) {
-				worker.logger.Warnf("failed to watch RPC v2: %v", err)
-			}), retry.Context(subCtx), retry.Attempts(0))
-		}()
-	} else {
-		worker.logger.Infof("using gRPC-based v1 RPC")
-
-		go func() {
-			_ = retry.Do(func() error {
-				return worker.watchRPC(subCtx)
-			}, retry.OnRetry(func(n uint, err error) {
-				worker.logger.Warnf("failed to watch RPC v1: %v", err)
-			}), retry.Context(subCtx), retry.Attempts(0))
-		}()
-	}
+	group, sessionCtx := errgroup.WithContext(subCtx)
+	worker.superviseRPCWatch(sessionCtx, ctx, group, info, onWatchHealthy)
 
 	// Sync on-disk VMs
-	if err := worker.syncOnDiskVMs(ctx); err != nil {
+	if err := worker.syncOnDiskVMs(sessionCtx); err != nil {
+		cancel()
+		watchErr := group.Wait()
+
 		worker.logger.Errorf("failed to sync on-disk VMs: %v", err)
+
+		if errors.Is(watchErr, errRPCWatchDisconnected) {
+			return watchErr
+		}
 
 		return nil
 	}
+
+	recoveredVMs := worker.trackRecoveredVMs(time.Now())
 
 	// Backward compatibility with for older Orchard Controllers
 	updateFuncInner := worker.client.VMs().UpdateState
@@ -239,17 +273,15 @@ func (worker *Worker) runNewSession(ctx context.Context) error {
 		return err
 	}
 
-	group, ctx := errgroup.WithContext(subCtx)
-
 	group.Go(func() error {
 		for {
-			if err := worker.updateWorker(ctx); err != nil {
+			if err := worker.updateWorker(sessionCtx); err != nil {
 				return fmt.Errorf("failed to update worker resource: %w", err)
 			}
 
 			select {
-			case <-ctx.Done():
-				return ctx.Err()
+			case <-sessionCtx.Done():
+				return sessionCtx.Err()
 			case <-time.After(workerResourceUpdateInterval):
 				// Proceed
 			}
@@ -258,13 +290,13 @@ func (worker *Worker) runNewSession(ctx context.Context) error {
 
 	group.Go(func() error {
 		for {
-			if err := worker.syncVMs(ctx, updateFunc); err != nil {
+			if err := worker.syncVMs(sessionCtx, updateFunc, recoveredVMs); err != nil {
 				return fmt.Errorf("failed to sync VMs: %w", err)
 			}
 
 			select {
-			case <-ctx.Done():
-				return ctx.Err()
+			case <-sessionCtx.Done():
+				return sessionCtx.Err()
 			case <-worker.syncRequested:
 			case <-worker.pollTicker.C:
 				// Proceed
@@ -274,9 +306,100 @@ func (worker *Worker) runNewSession(ctx context.Context) error {
 
 	if err := group.Wait(); err != nil {
 		worker.logger.Errorf("%v", err)
+
+		if errors.Is(err, errRPCWatchDisconnected) {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func (worker *Worker) superviseRPCWatch(
+	sessionCtx context.Context,
+	operationCtx context.Context,
+	group *errgroup.Group,
+	info v1.ControllerInfo,
+	onWatchHealthy func(),
+) {
+	watchRPC := worker.watchRPC
+	rpcVersion := "v1"
+
+	if info.Capabilities.Has(v1.ControllerCapabilityRPCV2) {
+		worker.logger.Infof("using WebSocket-based v2 RPC")
+		watchRPC = worker.watchRPCV2
+		rpcVersion = "v2"
+	} else {
+		worker.logger.Infof("using gRPC-based v1 RPC")
+	}
+
+	watchEstablished := make(chan struct{})
+
+	group.Go(func() error {
+		if err := watchRPC(sessionCtx, operationCtx, func() { close(watchEstablished) }); err != nil {
+			if sessionCtx.Err() != nil {
+				return sessionCtx.Err()
+			}
+
+			return fmt.Errorf("%w: failed to watch RPC %s: %w", errRPCWatchDisconnected, rpcVersion, err)
+		}
+
+		return fmt.Errorf("%w: RPC %s watch closed unexpectedly", errRPCWatchDisconnected, rpcVersion)
+	})
+
+	group.Go(func() error {
+		return monitorRPCWatchHealth(sessionCtx, watchEstablished, rpcWatchHealthyInterval, onWatchHealthy)
+	})
+}
+
+func monitorRPCWatchHealth(
+	ctx context.Context,
+	established <-chan struct{},
+	healthyAfter time.Duration,
+	onHealthy func(),
+) error {
+	select {
+	case <-established:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	healthTimer := time.NewTimer(healthyAfter)
+	defer healthTimer.Stop()
+
+	select {
+	case <-healthTimer.C:
+		onHealthy()
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (worker *Worker) trackRecoveredVMs(now time.Time) map[ondiskname.OnDiskName]time.Time {
+	if worker.recoveredVMs == nil {
+		worker.recoveredVMs = make(map[ondiskname.OnDiskName]time.Time)
+	}
+
+	for onDiskName := range worker.recoveredVMs {
+		if !worker.vmm.Exists(onDiskName) {
+			delete(worker.recoveredVMs, onDiskName)
+		}
+	}
+
+	for _, vm := range worker.vmm.List() {
+		status := vm.Status()
+		if status != v1.VMStatusPending && status != v1.VMStatusRunning {
+			continue
+		}
+
+		onDiskName := vm.OnDiskName()
+		if _, alreadyTracked := worker.recoveredVMs[onDiskName]; !alreadyTracked {
+			worker.recoveredVMs[onDiskName] = now.Add(recoveredVMProtectionPeriod)
+		}
+	}
+
+	return worker.recoveredVMs
 }
 
 func (worker *Worker) registerWorker(ctx context.Context) error {
@@ -326,8 +449,12 @@ func (worker *Worker) updateWorker(ctx context.Context) error {
 	return nil
 }
 
-//nolint:nestif,gocognit // nested "if" and cognitive complexity is tolerable for now
-func (worker *Worker) syncVMs(ctx context.Context, updateVM func(context.Context, v1.VM) error) error {
+//nolint:gocognit // VM lifecycle branches are clearest in a single reconciliation loop.
+func (worker *Worker) syncVMs(
+	ctx context.Context,
+	updateVM func(context.Context, v1.VM) error,
+	recoveredVMs map[ondiskname.OnDiskName]time.Time,
+) error {
 	allKeys := mapset.NewSet[ondiskname.OnDiskName]()
 
 	remoteVMs, err := worker.client.VMs().FindForWorker(ctx, worker.name)
@@ -367,6 +494,8 @@ func (worker *Worker) syncVMs(ctx context.Context, updateVM func(context.Context
 	// we risk violating the scheduler resource assumptions
 	sortNonExistentAndFailedFirst(pairs)
 
+	hasUnaccountedRecoveredVM := false
+
 	for _, tuple := range pairs {
 		onDiskName, vmResource, vm := lo.Unpack3(tuple)
 
@@ -382,6 +511,14 @@ func (worker *Worker) syncVMs(ctx context.Context, updateVM func(context.Context
 			localConditions = vm.Conditions()
 		}
 
+		if shouldPreserveRecoveredVM(recoveredVMs, onDiskName, vmResource, localState, time.Now()) {
+			hasUnaccountedRecoveredVM = true
+			worker.logger.Warnf("preserving active VM %s missing from controller during worker session recovery",
+				onDiskName)
+
+			continue
+		}
+
 		action := transitions[remoteState][localState]
 
 		worker.logger.Debugf("processing VM: %s, remote state: %s, local state: %s, "+
@@ -391,6 +528,13 @@ func (worker *Worker) syncVMs(ctx context.Context, updateVM func(context.Context
 		switch action {
 		case ActionCreate:
 			// Remote VM was created, but not the local VM
+			if hasUnaccountedRecoveredVM {
+				worker.logger.Warnf("deferring VM %s while recovered VMs are missing from controller inventory",
+					onDiskName)
+
+				continue
+			}
+
 			worker.createVM(onDiskName, *vmResource)
 		case ActionMonitorPending:
 			if vmResource.StatusMessage != vm.StatusMessage() {
@@ -418,59 +562,8 @@ func (worker *Worker) syncVMs(ctx context.Context, updateVM func(context.Context
 				return err
 			}
 		case ActionMonitorRunning:
-			if vmResource.Generation != vm.Resource().Generation {
-				// VM specification changed, reboot the VM for the changes to take effect
-				stoppingOrSuspending := v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeStopping) ||
-					v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeSuspending)
-
-				if v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeRunning) && !stoppingOrSuspending {
-					// VM is running, suspend or stop it first
-					shouldStop := vmResource.PowerState == v1.PowerStateStopped || !vm.Resource().Suspendable
-
-					if shouldStop {
-						vm.Stop()
-					} else {
-						vm.Suspend()
-					}
-				}
-
-				if v1.ConditionIsFalse(vm.Conditions(), v1.ConditionTypeRunning) && !stoppingOrSuspending {
-					// VM stopped, update its specification
-					vm.SetResource(*vmResource)
-
-					if vmResource.PowerState == v1.PowerStateRunning {
-						// Start the VM
-						eventStreamer := worker.client.VMs().StreamEvents(vmResource.Name)
-						vm.Start(eventStreamer)
-					}
-				}
-			}
-
-			var updateNeeded bool
-
-			if vmResource.StatusMessage != vm.StatusMessage() {
-				vmResource.StatusMessage = vm.StatusMessage()
-
-				updateNeeded = true
-			}
-
-			if vmResource.ObservedGeneration != vm.Resource().ObservedGeneration {
-				vmResource.ObservedGeneration = vm.Resource().ObservedGeneration
-
-				updateNeeded = true
-			}
-
-			// Propagate VM's conditions to the Orchard Controller
-			for _, condition := range vm.Conditions() {
-				if v1.ConditionsSet(&vmResource.Conditions, condition) {
-					updateNeeded = true
-				}
-			}
-
-			if updateNeeded {
-				if err := updateVM(ctx, *vmResource); err != nil {
-					return err
-				}
+			if err := worker.monitorRunningVM(ctx, vmResource, vm, updateVM); err != nil {
+				return err
 			}
 		case ActionStop:
 			// VM has failed on the remote side, stop it locally to prevent incorrect
@@ -511,6 +604,100 @@ func (worker *Worker) syncVMs(ctx context.Context, updateVM func(context.Context
 	}
 
 	return nil
+}
+
+func (worker *Worker) monitorRunningVM(
+	ctx context.Context,
+	vmResource *v1.VM,
+	vm vmmanager.VM,
+	updateVM func(context.Context, v1.VM) error,
+) error {
+	worker.reconcileRunningVM(vmResource, vm) //nolint:contextcheck // Event streams outlive sync sessions.
+
+	var updateNeeded bool
+
+	if vmResource.StatusMessage != vm.StatusMessage() {
+		vmResource.StatusMessage = vm.StatusMessage()
+
+		updateNeeded = true
+	}
+
+	if vmResource.ObservedGeneration != vm.Resource().ObservedGeneration {
+		vmResource.ObservedGeneration = vm.Resource().ObservedGeneration
+
+		updateNeeded = true
+	}
+
+	// Propagate VM's conditions to the Orchard Controller
+	for _, condition := range vm.Conditions() {
+		if v1.ConditionsSet(&vmResource.Conditions, condition) {
+			updateNeeded = true
+		}
+	}
+
+	if updateNeeded {
+		return updateVM(ctx, *vmResource)
+	}
+
+	return nil
+}
+
+func (worker *Worker) reconcileRunningVM(vmResource *v1.VM, vm vmmanager.VM) {
+	if vmResource.Generation == vm.Resource().Generation {
+		return
+	}
+
+	stoppingOrSuspending := v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeStopping) ||
+		v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeSuspending)
+	if stoppingOrSuspending {
+		return
+	}
+
+	if v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeRunning) {
+		// VM is running, suspend or stop it first.
+		shouldStop := vmResource.PowerState == v1.PowerStateStopped || !vm.Resource().Suspendable
+
+		if shouldStop {
+			vm.Stop()
+		} else {
+			vm.Suspend()
+		}
+	}
+
+	if v1.ConditionIsFalse(vm.Conditions(), v1.ConditionTypeRunning) {
+		// VM stopped, update its specification.
+		vm.SetResource(*vmResource)
+
+		if vmResource.PowerState == v1.PowerStateRunning {
+			// Start the VM.
+			eventStreamer := worker.client.VMs().StreamEvents(vmResource.Name)
+			vm.Start(eventStreamer)
+		}
+	}
+}
+
+func shouldPreserveRecoveredVM(
+	recoveredVMs map[ondiskname.OnDiskName]time.Time,
+	onDiskName ondiskname.OnDiskName,
+	remoteVM *v1.VM,
+	localState mo.Option[v1.VMStatus],
+	now time.Time,
+) bool {
+	deadline, recovered := recoveredVMs[onDiskName]
+	if !recovered {
+		return false
+	}
+
+	active := localState == mo.Some(v1.VMStatusPending) || localState == mo.Some(v1.VMStatusRunning)
+	if remoteVM == nil && active && now.Before(deadline) {
+		return true
+	}
+
+	// Once the controller recognizes a recovered VM, or the bounded recovery
+	// window expires, user-requested deletion follows the normal lifecycle.
+	delete(recoveredVMs, onDiskName)
+
+	return false
 }
 
 //nolint:nestif,gocognit // complexity is tolerable for now
