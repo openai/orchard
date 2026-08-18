@@ -3,14 +3,18 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
+	"github.com/cirruslabs/orchard/internal/worker/runtime"
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager"
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager/tart"
 	"github.com/cirruslabs/orchard/pkg/client"
@@ -35,7 +39,203 @@ const (
 	recoveryTestWorkerPath = "/v1/workers/" + recoveryTestWorkerName
 	recoveryTestVMsPath    = "/v1/vms"
 	recoveryTestWatchPath  = "/v1/rpc/watch"
+	recoveryTestInfoPath   = "/v1/controller/info"
+	startupTestWorkersPath = "/v1/workers"
+	startupTestVMUID       = "11111111-2222-4333-8444-555555555555"
 )
+
+func TestSyncOnDiskVMsCancelsStuckTartList(t *testing.T) {
+	worker := newWorkerWithFakeTart(t, "#!/bin/sh\nexec /bin/sleep 60\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	err := worker.syncOnDiskVMs(ctx)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "timed out listing on-disk VMs")
+	require.Less(t, time.Since(started), time.Second)
+}
+
+func TestSyncOnDiskVMsPreservesTartPermissionError(t *testing.T) {
+	worker := newWorkerWithFakeTart(t,
+		"#!/bin/sh\necho 'Failed to perform garbage collection: NSCocoaErrorDomain Code=257' >&2\nexit 1\n",
+	)
+
+	err := worker.syncOnDiskVMs(context.Background())
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "Code=257")
+}
+
+func TestRunNewSessionDoesNotRegisterWorkerWhenTartFails(t *testing.T) {
+	var registrations atomic.Int32
+	worker := newWorkerWithFakeTart(t,
+		"#!/bin/sh\necho 'Failed to perform garbage collection: NSCocoaErrorDomain Code=257' >&2\nexit 1\n",
+		func(_ http.ResponseWriter, request *http.Request) bool {
+			if request.Method == http.MethodPost && request.URL.Path == startupTestWorkersPath {
+				registrations.Add(1)
+			}
+
+			return false
+		},
+	)
+
+	require.NoError(t, worker.runNewSession(context.Background(), func() {}))
+	require.Zero(t, registrations.Load(), "workers with unusable Tart storage must not appear healthy")
+}
+
+func TestRunNewSessionDoesNotDeleteVMsWhenWorkerIdentityConflicts(t *testing.T) {
+	onDiskName := ondiskname.New("protected-vm", startupTestVMUID, 0).String()
+	script, commandsPath := fakeTartInventoryScript(t, onDiskName)
+	var registrations atomic.Int32
+
+	worker := newWorkerWithFakeTart(t, script,
+		func(writer http.ResponseWriter, request *http.Request) bool {
+			if request.Method != http.MethodPost || request.URL.Path != startupTestWorkersPath {
+				return false
+			}
+
+			registrations.Add(1)
+			writer.WriteHeader(http.StatusConflict)
+
+			return true
+		},
+	)
+
+	require.NoError(t, worker.runNewSession(context.Background(), func() {}))
+	require.Equal(t, int32(1), registrations.Load())
+
+	commands, err := readFakeTartCommands(commandsPath)
+	require.NoError(t, err)
+	require.Equal(t, "list\n", string(commands),
+		"registration conflicts must not stop or delete local VMs")
+}
+
+func TestRunNewSessionReconcilesVMsOnlyAfterWorkerRegistration(t *testing.T) {
+	onDiskName := ondiskname.New("orphaned-vm", startupTestVMUID, 0).String()
+	script, commandsPath := fakeTartInventoryScript(t, onDiskName)
+	var commandsAtRegistration atomic.Value
+
+	worker := newWorkerWithFakeTart(t, script,
+		func(writer http.ResponseWriter, request *http.Request) bool {
+			if request.Method != http.MethodPost || request.URL.Path != startupTestWorkersPath {
+				return false
+			}
+
+			commands, err := readFakeTartCommands(commandsPath)
+			if err != nil {
+				t.Errorf("failed to inspect Tart commands at worker registration: %v", err)
+				writer.WriteHeader(http.StatusInternalServerError)
+
+				return true
+			}
+			commandsAtRegistration.Store(string(commands))
+
+			var workerResource v1.Worker
+			if err := json.NewDecoder(request.Body).Decode(&workerResource); err != nil {
+				t.Errorf("failed to decode worker registration: %v", err)
+				writer.WriteHeader(http.StatusBadRequest)
+
+				return true
+			}
+
+			writeRecoveryTestJSON(t, writer, workerResource)
+
+			return true
+		},
+	)
+
+	require.NoError(t, worker.runNewSession(context.Background(), func() {}))
+	require.Equal(t, "list\n", commandsAtRegistration.Load(),
+		"local VMs must not be reconciled until worker registration succeeds")
+
+	commands, err := readFakeTartCommands(commandsPath)
+	require.NoError(t, err)
+	require.Equal(t, "list\nstop\ndelete\n", string(commands),
+		"successful registration should reconcile the original inventory without listing twice")
+}
+
+func fakeTartInventoryScript(t *testing.T, onDiskName string) (string, string) {
+	t.Helper()
+
+	commandsPath := filepath.Join(t.TempDir(), "tart-commands")
+	inventory, err := json.Marshal([]struct {
+		Name    string `json:"name"`
+		Running bool   `json:"running"`
+	}{{Name: onDiskName, Running: true}})
+	require.NoError(t, err)
+
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$1\" >> %q\n"+
+		"if [ \"$1\" = list ]; then\nprintf '%%s\\n' '%s'\nfi\n", commandsPath, inventory)
+
+	return script, commandsPath
+}
+
+func readFakeTartCommands(commandsPath string) ([]byte, error) {
+	return os.ReadFile(filepath.Clean(commandsPath))
+}
+
+func newWorkerWithFakeTart(
+	t *testing.T,
+	script string,
+	observeRequests ...func(http.ResponseWriter, *http.Request) bool,
+) *Worker {
+	t.Helper()
+
+	binDir := t.TempDir()
+	fakeTartPath := filepath.Join(binDir, "tart")
+	require.NoError(t, os.WriteFile(fakeTartPath, []byte(script), 0o600))
+	require.NoError(t, os.Chmod(fakeTartPath, 0o700)) //nolint:gosec // Fake Tart must be executable.
+	t.Setenv("PATH", binDir)
+
+	controller := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		for _, observeRequest := range observeRequests {
+			if observeRequest(writer, request) {
+				return
+			}
+		}
+
+		switch request.URL.Path {
+		case recoveryTestInfoPath:
+			writeRecoveryTestJSON(t, writer, v1.ControllerInfo{
+				Capabilities: v1.ControllerCapabilities{v1.ControllerCapabilityRPCV2},
+			})
+		case recoveryTestWatchPath:
+			connection, err := websocket.Accept(writer, request, nil)
+			if err != nil {
+				t.Errorf("failed to accept RPC watch: %v", err)
+
+				return
+			}
+			defer connection.CloseNow()
+
+			<-request.Context().Done()
+		case recoveryTestVMsPath:
+			writeRecoveryTestJSON(t, writer, []v1.VM{})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(controller.Close)
+
+	controllerClient, err := client.New(client.WithAddress(controller.URL))
+	require.NoError(t, err)
+
+	pollTicker := time.NewTicker(pollInterval)
+	t.Cleanup(pollTicker.Stop)
+
+	return &Worker{
+		name:          "worker-a",
+		client:        controllerClient,
+		vmm:           vmmanager.New(),
+		pollTicker:    pollTicker,
+		syncRequested: make(chan bool, 1),
+		runtime:       runtime.NewTart(),
+		logger:        zap.NewNop().Sugar(),
+	}
+}
 
 func TestWorkerRecoversControllerSessionWithoutDeletingRunningVM(t *testing.T) {
 	firstHeartbeat := make(chan struct{})
@@ -69,7 +269,7 @@ func TestWorkerRecoversControllerSessionWithoutDeletingRunningVM(t *testing.T) {
 			}
 
 			writeRecoveryTestJSON(t, writer, workerResource)
-		case request.Method == http.MethodGet && request.URL.Path == "/v1/controller/info":
+		case request.Method == http.MethodGet && request.URL.Path == recoveryTestInfoPath:
 			writeRecoveryTestJSON(t, writer, v1.ControllerInfo{
 				Capabilities: v1.ControllerCapabilities{v1.ControllerCapabilityRPCV2},
 			})
@@ -257,7 +457,7 @@ func testWorkerBacksOffPersistentRPCWatchFailure(t *testing.T, useRPCV2 bool, cl
 				return
 			}
 			writeRecoveryTestJSON(t, writer, workerResource)
-		case request.Method == http.MethodGet && request.URL.Path == "/v1/controller/info":
+		case request.Method == http.MethodGet && request.URL.Path == recoveryTestInfoPath:
 			info := v1.ControllerInfo{}
 			if useRPCV2 {
 				info.Capabilities = v1.ControllerCapabilities{v1.ControllerCapabilityRPCV2}
