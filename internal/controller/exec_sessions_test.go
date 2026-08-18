@@ -278,7 +278,7 @@ func TestExecSessionLiveOutputAppliesBackpressure(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < frameCount; i++ {
+		for i := range frameCount {
 			session.recordFrame(&execstream.Frame{
 				Type: execstream.FrameTypeStdout,
 				Data: []byte{byte(i)},
@@ -294,7 +294,7 @@ func TestExecSessionLiveOutputAppliesBackpressure(t *testing.T) {
 		return len(subscriber.frames) == cap(subscriber.frames)
 	}, time.Second, time.Millisecond)
 
-	for i := 0; i < frameCount; i++ {
+	for i := range frameCount {
 		frame, ok := <-subscriber.frames
 		require.True(t, ok, "subscriber closed before output frame %d", i)
 		require.Equal(t, execstream.FrameTypeStdout, frame.Type)
