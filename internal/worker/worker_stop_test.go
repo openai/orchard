@@ -108,7 +108,7 @@ func TestSyncVMsWaitsForVMShutdown(t *testing.T) {
 				finished <- worker.syncVMs(context.Background(), func(_ context.Context, updatedVM v1.VM) error {
 					updated <- updatedVM
 					return nil
-				})
+				}, nil)
 			}()
 
 			select {

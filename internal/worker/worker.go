@@ -42,6 +42,7 @@ const (
 	rpcWatchReconnectMaxInterval = 5 * time.Second
 	rpcWatchReconnectMultiplier  = 2
 	rpcWatchHealthyInterval      = time.Second
+	onDiskVMSyncTimeout          = 30 * time.Second
 )
 
 var (
@@ -223,6 +224,15 @@ func (worker *Worker) runNewSession(ctx context.Context, onWatchHealthy func()) 
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Check the runtime before advertising this worker, but do not touch local
+	// VMs until registration confirms that this worker belongs to this machine.
+	vmInfos, err := worker.listOnDiskVMs(subCtx)
+	if err != nil {
+		worker.logger.Errorf("failed to list on-disk VMs: %v", err)
+
+		return nil
+	}
+
 	if err := worker.registerWorker(subCtx); err != nil {
 		worker.logger.Warnf("failed to register worker: %v", err)
 
@@ -240,7 +250,7 @@ func (worker *Worker) runNewSession(ctx context.Context, onWatchHealthy func()) 
 	worker.superviseRPCWatch(sessionCtx, ctx, group, info, onWatchHealthy)
 
 	// Sync on-disk VMs
-	if err := worker.syncOnDiskVMs(sessionCtx); err != nil {
+	if err := worker.syncOnDiskVMsWithInventory(sessionCtx, vmInfos); err != nil {
 		cancel()
 		watchErr := group.Wait()
 
@@ -704,10 +714,41 @@ func shouldPreserveRecoveredVM(
 	return false
 }
 
-//nolint:nestif,gocognit // complexity is tolerable for now
-func (worker *Worker) syncOnDiskVMs(ctx context.Context) error {
+func (worker *Worker) listOnDiskVMs(ctx context.Context) ([]vmmanager.VMInfo, error) {
 	if worker.runtime.Synthetic() {
 		// There's no on-disk VMs when using synthetic VMs
+		return nil, nil
+	}
+
+	worker.logger.Infof("listing on-disk VMs...")
+
+	runtimeCtx, cancelRuntime := context.WithTimeout(ctx, onDiskVMSyncTimeout)
+	defer cancelRuntime()
+
+	vmInfos, err := worker.runtime.ListVMs(runtimeCtx, worker.logger)
+	if err != nil {
+		if errors.Is(runtimeCtx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("timed out listing on-disk VMs: %w", context.DeadlineExceeded)
+		}
+
+		return nil, err
+	}
+
+	return vmInfos, nil
+}
+
+func (worker *Worker) syncOnDiskVMs(ctx context.Context) error {
+	vmInfos, err := worker.listOnDiskVMs(ctx)
+	if err != nil {
+		return err
+	}
+
+	return worker.syncOnDiskVMsWithInventory(ctx, vmInfos)
+}
+
+//nolint:nestif,gocognit // complexity is tolerable for now
+func (worker *Worker) syncOnDiskVMsWithInventory(ctx context.Context, vmInfos []vmmanager.VMInfo) error {
+	if worker.runtime.Synthetic() {
 		return nil
 	}
 
@@ -721,11 +762,6 @@ func (worker *Worker) syncOnDiskVMs(ctx context.Context) error {
 	}
 
 	worker.logger.Infof("syncing on-disk VMs...")
-
-	vmInfos, err := worker.runtime.ListVMs(ctx, worker.logger)
-	if err != nil {
-		return err
-	}
 
 	for _, vmInfo := range vmInfos {
 		onDiskName, err := ondiskname.Parse(vmInfo.Name)
