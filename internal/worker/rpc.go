@@ -22,7 +22,7 @@ import (
 	"github.com/samber/lo"
 )
 
-func (worker *Worker) watchRPC(ctx context.Context) error {
+func (worker *Worker) watchRPC(ctx context.Context, operationCtx context.Context, onEstablished func()) error {
 	worker.logger.Infof("connecting to %s over gRPC", worker.client.GRPCTarget())
 
 	conn, err := grpc.NewClient(worker.client.GRPCTarget(),
@@ -40,11 +40,13 @@ func (worker *Worker) watchRPC(ctx context.Context) error {
 	client := rpc.NewControllerClient(conn)
 
 	ctxWithMetadata := metadata.NewOutgoingContext(ctx, worker.grpcMetadata())
+	operationCtxWithMetadata := metadata.NewOutgoingContext(operationCtx, worker.grpcMetadata())
 
 	stream, err := client.Watch(ctxWithMetadata, &emptypb.Empty{})
 	if err != nil {
 		return err
 	}
+	onEstablished()
 
 	worker.logger.Infof("running gRPC stream with the controller")
 
@@ -56,11 +58,11 @@ func (worker *Worker) watchRPC(ctx context.Context) error {
 
 		switch action := watchFromController.Action.(type) {
 		case *rpc.WatchInstruction_PortForwardAction:
-			go worker.handlePortForward(ctxWithMetadata, client, action.PortForwardAction)
+			go worker.handlePortForward(operationCtxWithMetadata, client, action.PortForwardAction)
 		case *rpc.WatchInstruction_SyncVmsAction:
 			worker.requestVMSyncing()
 		case *rpc.WatchInstruction_ResolveIpAction:
-			go worker.handleGetIP(ctxWithMetadata, client, action.ResolveIpAction)
+			go worker.handleGetIP(operationCtxWithMetadata, client, action.ResolveIpAction)
 		}
 	}
 }

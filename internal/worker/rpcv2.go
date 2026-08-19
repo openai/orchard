@@ -11,21 +11,22 @@ import (
 	"github.com/samber/lo"
 )
 
-func (worker *Worker) watchRPCV2(ctx context.Context) error {
+func (worker *Worker) watchRPCV2(ctx context.Context, operationCtx context.Context, onEstablished func()) error {
 	watchInstructionCh, watchErrCh, err := worker.client.RPC().Watch(ctx, worker.name)
 	if err != nil {
 		return err
 	}
+	onEstablished()
 
 	for {
 		select {
 		case watchInstruction := <-watchInstructionCh:
 			if portForwardAction := watchInstruction.PortForwardAction; portForwardAction != nil {
-				go worker.handlePortForwardV2(ctx, portForwardAction)
+				go worker.handlePortForwardV2(operationCtx, portForwardAction)
 			} else if syncVMsAction := watchInstruction.SyncVMsAction; syncVMsAction != nil {
 				worker.requestVMSyncing()
 			} else if resolveIPAction := watchInstruction.ResolveIPAction; resolveIPAction != nil {
-				go worker.handleGetIPV2(ctx, resolveIPAction)
+				go worker.handleGetIPV2(operationCtx, resolveIPAction)
 			}
 		case watchErr := <-watchErrCh:
 			return watchErr
