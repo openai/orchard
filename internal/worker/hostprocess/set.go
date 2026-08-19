@@ -38,6 +38,8 @@ func (set *Set) Start(ctx context.Context, specs []v1.HostProcess) error {
 	set.mtx.Lock()
 	defer set.mtx.Unlock()
 
+	set.stopLocked()
+
 	return set.startLocked(ctx, specs)
 }
 

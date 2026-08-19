@@ -100,6 +100,49 @@ func TestSetStartAndStop(t *testing.T) {
 	require.True(t, set.Ready())
 }
 
+func TestSetStartReplacesExistingProcesses(t *testing.T) {
+	// Use this test binary as a host process
+	executable, err := os.Executable()
+	require.NoError(t, err)
+
+	// Create a host process set and start a new host process
+	set := NewSet("", "", ondiskname.OnDiskName{})
+	defer set.Stop()
+
+	hostProcesses := []v1.HostProcess{{
+		Name:    "process",
+		Program: executable,
+		Args:    []string{testHelperArg},
+		Env: map[string]string{
+			testHelperEnv: "set",
+		},
+	}}
+
+	require.NoError(t, set.Start(t.Context(), hostProcesses))
+
+	// Keep track of the original process to verify it is stopped
+	original := set.Lookup("process")
+	require.NotNil(t, original)
+	defer original.Close()
+
+	// Start a new host process
+	require.NoError(t, set.Start(t.Context(), hostProcesses))
+
+	// Ensure that the original process was stopped
+	select {
+	case <-original.done:
+		// It was stopped, nice
+	default:
+		require.FailNow(t, "the original process is still running")
+	}
+
+	// Ensure that a new ready process replaced the original
+	replacement := set.Lookup("process")
+	require.NotNil(t, replacement)
+	require.NotSame(t, original, replacement)
+	require.True(t, set.Ready())
+}
+
 func runTestHelper() int {
 	if os.Getenv(testHelperEnv) != "set" {
 		return 3
