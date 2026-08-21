@@ -1,6 +1,6 @@
 module github.com/cirruslabs/orchard
 
-go 1.25.1
+go 1.27
 
 // Work around https://github.com/gin-gonic/gin/issues/4372
 replace github.com/gin-gonic/gin v1.11.0 => github.com/gin-gonic/gin v1.10.0
