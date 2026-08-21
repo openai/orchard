@@ -55,6 +55,50 @@ func TestResourcesSubtracted(t *testing.T) {
 	}))
 }
 
+func TestResourcesSubtractSaturatesAtZero(t *testing.T) {
+	resources := v1.Resources{
+		v1.ResourceTartVMs:      2,
+		v1.ResourceLogicalCores: 8,
+	}
+
+	resources.Subtract(v1.Resources{
+		v1.ResourceTartVMs:      3,
+		v1.ResourceLogicalCores: 4,
+		v1.ResourceMemoryMiB:    1,
+	})
+
+	require.Equal(t, v1.Resources{
+		v1.ResourceTartVMs:      0,
+		v1.ResourceLogicalCores: 4,
+		v1.ResourceMemoryMiB:    0,
+	}, resources)
+	require.False(t, resources.CanFit(v1.Resources{v1.ResourceTartVMs: 1}))
+}
+
+func TestResourcesSubtractedSaturatesAtZeroWithoutMutatingOriginal(t *testing.T) {
+	resources := v1.Resources{
+		v1.ResourceTartVMs:      2,
+		v1.ResourceLogicalCores: 8,
+	}
+
+	remaining := resources.Subtracted(v1.Resources{
+		v1.ResourceTartVMs:      3,
+		v1.ResourceLogicalCores: 4,
+		v1.ResourceMemoryMiB:    1,
+	})
+
+	require.Equal(t, v1.Resources{
+		v1.ResourceTartVMs:      0,
+		v1.ResourceLogicalCores: 4,
+		v1.ResourceMemoryMiB:    0,
+	}, remaining)
+	require.Equal(t, v1.Resources{
+		v1.ResourceTartVMs:      2,
+		v1.ResourceLogicalCores: 8,
+	}, resources)
+	require.False(t, remaining.CanFit(v1.Resources{v1.ResourceTartVMs: 1}))
+}
+
 func TestResourcesCanFit(t *testing.T) {
 	resources := v1.Resources{
 		v1.ResourceTartVMs: 2,
