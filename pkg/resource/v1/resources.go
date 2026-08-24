@@ -62,16 +62,18 @@ func (resources Resources) Added(other Resources) Resources {
 
 func (resources Resources) Subtract(other Resources) {
 	for otherKey, otherValue := range other {
+		if otherValue >= resources[otherKey] {
+			resources[otherKey] = 0
+			continue
+		}
+
 		resources[otherKey] -= otherValue
 	}
 }
 
 func (resources Resources) Subtracted(other Resources) Resources {
 	result := resources.Copy()
-
-	for otherKey, otherValue := range other {
-		result[otherKey] -= otherValue
-	}
+	result.Subtract(other)
 
 	return result
 }
