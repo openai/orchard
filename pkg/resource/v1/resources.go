@@ -35,13 +35,11 @@ func NewResourcesFromStringToString(
 }
 
 func (resources Resources) Copy() Resources {
-	result := make(Resources)
-
-	for key, value := range resources {
-		result[key] = value
+	if resources == nil {
+		return make(Resources)
 	}
 
-	return result
+	return maps.Clone(resources)
 }
 
 func (resources Resources) Add(other Resources) {
@@ -87,9 +85,7 @@ func (resources Resources) Merge(other Resources) {
 func (resources Resources) Merged(other Resources) Resources {
 	result := resources.Copy()
 
-	for otherKey, otherValue := range other {
-		result[otherKey] = otherValue
-	}
+	maps.Copy(result, other)
 
 	return result
 }
