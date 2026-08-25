@@ -266,6 +266,135 @@ func TestExecSessionHistoryReplayStreamsPastSubscriberBuffer(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestExecSessionLiveOutputAppliesBackpressure(t *testing.T) {
+	session := newManualExecSessionForTest(execSessionKey{vmName: "vm", sessionID: "session"}, nil)
+	session.policy = legacyExecSessionPolicy
+	t.Cleanup(session.close)
+
+	subscriber, err := session.attach()
+	require.NoError(t, err)
+
+	const frameCount = 256
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range frameCount {
+			session.recordFrame(&execstream.Frame{
+				Type:      execstream.FrameTypeStdout,
+				Data:      []byte{byte(i)},
+				Terminal:  nil,
+				Exit:      nil,
+				Error:     "",
+				Watermark: 0,
+			})
+		}
+		session.recordFrame(&execstream.Frame{
+			Type:      execstream.FrameTypeExit,
+			Data:      nil,
+			Terminal:  nil,
+			Exit:      &execstream.Exit{Code: 0},
+			Error:     "",
+			Watermark: 0,
+		})
+	}()
+
+	require.Eventually(t, func() bool {
+		return len(subscriber.frames) == cap(subscriber.frames)
+	}, time.Second, time.Millisecond)
+
+	for i := range frameCount {
+		frame, ok := <-subscriber.frames
+		require.True(t, ok, "subscriber closed before output frame %d", i)
+		require.Equal(t, execstream.FrameTypeStdout, frame.Type)
+		require.Equal(t, []byte{byte(i)}, frame.Data)
+	}
+
+	exitFrame, ok := <-subscriber.frames
+	require.True(t, ok, "subscriber closed before the exit frame")
+	require.Equal(t, execstream.FrameTypeExit, exitFrame.Type)
+	require.EqualValues(t, 0, exitFrame.Exit.Code)
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+}
+
+func TestReconnectableExecSessionDropsStalledSubscriber(t *testing.T) {
+	session := newManualExecSessionForTest(execSessionKey{vmName: "vm", sessionID: "session"}, nil)
+	t.Cleanup(session.close)
+
+	stalledSubscriber, err := session.attach()
+	require.NoError(t, err)
+
+	for i := range cap(stalledSubscriber.frames) {
+		session.recordFrame(&execstream.Frame{
+			Type:      execstream.FrameTypeStdout,
+			Data:      []byte{byte(i)},
+			Terminal:  nil,
+			Exit:      nil,
+			Error:     "",
+			Watermark: 0,
+		})
+	}
+
+	healthySubscriber, err := session.attach()
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		session.recordFrame(&execstream.Frame{
+			Type:      execstream.FrameTypeStdout,
+			Data:      []byte("still running"),
+			Terminal:  nil,
+			Exit:      nil,
+			Error:     "",
+			Watermark: 0,
+		})
+		session.recordFrame(&execstream.Frame{
+			Type:      execstream.FrameTypeExit,
+			Data:      nil,
+			Terminal:  nil,
+			Exit:      &execstream.Exit{Code: 0},
+			Error:     "",
+			Watermark: 0,
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("a stalled reconnectable subscriber blocked live output")
+	}
+
+	outputFrame := <-healthySubscriber.frames
+	require.Equal(t, execstream.FrameTypeStdout, outputFrame.Type)
+	require.Equal(t, []byte("still running"), outputFrame.Data)
+
+	exitFrame := <-healthySubscriber.frames
+	require.Equal(t, execstream.FrameTypeExit, exitFrame.Type)
+	require.EqualValues(t, 0, exitFrame.Exit.Code)
+
+	select {
+	case <-stalledSubscriber.closed:
+	default:
+		t.Fatal("the stalled reconnectable subscriber was not dropped")
+	}
+
+	reconnectedSubscriber, err := session.attach()
+	require.NoError(t, err)
+	session.sendHistory(reconnectedSubscriber, uint64(cap(stalledSubscriber.frames)))
+
+	require.Equal(t, execstream.FrameTypeStdout, (<-reconnectedSubscriber.frames).Type)
+	require.Equal(t, execstream.FrameTypeExit, (<-reconnectedSubscriber.frames).Type)
+	require.Equal(t, execstream.FrameTypeNoMoreHistory, (<-reconnectedSubscriber.frames).Type)
+}
+
 func TestExecSessionDetachKeepsProcessAlive(t *testing.T) {
 	registry := newExecSessionRegistry()
 	session := newManualExecSessionForTest(execSessionKey{vmName: "vm", sessionID: "session"}, registry)
