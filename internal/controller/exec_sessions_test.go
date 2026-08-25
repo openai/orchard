@@ -280,13 +280,21 @@ func TestExecSessionLiveOutputAppliesBackpressure(t *testing.T) {
 		defer close(done)
 		for i := range frameCount {
 			session.recordFrame(&execstream.Frame{
-				Type: execstream.FrameTypeStdout,
-				Data: []byte{byte(i)},
+				Type:      execstream.FrameTypeStdout,
+				Data:      []byte{byte(i)},
+				Terminal:  nil,
+				Exit:      nil,
+				Error:     "",
+				Watermark: 0,
 			})
 		}
 		session.recordFrame(&execstream.Frame{
-			Type: execstream.FrameTypeExit,
-			Exit: &execstream.Exit{Code: 0},
+			Type:      execstream.FrameTypeExit,
+			Data:      nil,
+			Terminal:  nil,
+			Exit:      &execstream.Exit{Code: 0},
+			Error:     "",
+			Watermark: 0,
 		})
 	}()
 
@@ -314,6 +322,77 @@ func TestExecSessionLiveOutputAppliesBackpressure(t *testing.T) {
 			return false
 		}
 	}, time.Second, time.Millisecond)
+}
+
+func TestReconnectableExecSessionDropsStalledSubscriber(t *testing.T) {
+	session := newManualExecSessionForTest(execSessionKey{vmName: "vm", sessionID: "session"}, nil)
+	t.Cleanup(session.close)
+
+	stalledSubscriber, err := session.attach()
+	require.NoError(t, err)
+
+	for i := range cap(stalledSubscriber.frames) {
+		session.recordFrame(&execstream.Frame{
+			Type:      execstream.FrameTypeStdout,
+			Data:      []byte{byte(i)},
+			Terminal:  nil,
+			Exit:      nil,
+			Error:     "",
+			Watermark: 0,
+		})
+	}
+
+	healthySubscriber, err := session.attach()
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		session.recordFrame(&execstream.Frame{
+			Type:      execstream.FrameTypeStdout,
+			Data:      []byte("still running"),
+			Terminal:  nil,
+			Exit:      nil,
+			Error:     "",
+			Watermark: 0,
+		})
+		session.recordFrame(&execstream.Frame{
+			Type:      execstream.FrameTypeExit,
+			Data:      nil,
+			Terminal:  nil,
+			Exit:      &execstream.Exit{Code: 0},
+			Error:     "",
+			Watermark: 0,
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("a stalled reconnectable subscriber blocked live output")
+	}
+
+	outputFrame := <-healthySubscriber.frames
+	require.Equal(t, execstream.FrameTypeStdout, outputFrame.Type)
+	require.Equal(t, []byte("still running"), outputFrame.Data)
+
+	exitFrame := <-healthySubscriber.frames
+	require.Equal(t, execstream.FrameTypeExit, exitFrame.Type)
+	require.EqualValues(t, 0, exitFrame.Exit.Code)
+
+	select {
+	case <-stalledSubscriber.closed:
+	default:
+		t.Fatal("the stalled reconnectable subscriber was not dropped")
+	}
+
+	reconnectedSubscriber, err := session.attach()
+	require.NoError(t, err)
+	session.sendHistory(reconnectedSubscriber, uint64(cap(stalledSubscriber.frames)))
+
+	require.Equal(t, execstream.FrameTypeStdout, (<-reconnectedSubscriber.frames).Type)
+	require.Equal(t, execstream.FrameTypeExit, (<-reconnectedSubscriber.frames).Type)
+	require.Equal(t, execstream.FrameTypeNoMoreHistory, (<-reconnectedSubscriber.frames).Type)
 }
 
 func TestExecSessionDetachKeepsProcessAlive(t *testing.T) {

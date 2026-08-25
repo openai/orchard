@@ -15,14 +15,16 @@ import (
 const execSessionReplayBufferBytes = 4 * 1024 * 1024
 
 type execSessionPolicy struct {
-	closeOnDetach   bool
-	retainAfterExit bool
-	replayEnabled   bool
+	closeOnDetach                 bool
+	retainAfterExit               bool
+	replayEnabled                 bool
+	blockOnSubscriberBackpressure bool
 }
 
 var (
 	legacyExecSessionPolicy = execSessionPolicy{
-		closeOnDetach: true,
+		closeOnDetach:                 true,
+		blockOnSubscriberBackpressure: true,
 	}
 	reconnectableExecSessionPolicy = execSessionPolicy{
 		retainAfterExit: true,
@@ -247,11 +249,32 @@ func newExecSessionSubscriber() *execSessionSubscriber {
 	}
 }
 
-func (subscriber *execSessionSubscriber) enqueue(frame *execstream.Frame) bool {
+func (subscriber *execSessionSubscriber) enqueue(frame *execstream.Frame, block bool) bool {
 	subscriber.sendMu.Lock()
 	defer subscriber.sendMu.Unlock()
 
-	return subscriber.sendLocked(frame)
+	if block {
+		return subscriber.sendLocked(frame)
+	}
+
+	if subscriber.alreadySentLocked(frame) {
+		return true
+	}
+
+	select {
+	case <-subscriber.closed:
+		return false
+	default:
+	}
+
+	select {
+	case subscriber.frames <- subscriber.markSentLocked(frame):
+		return true
+	case <-subscriber.closed:
+		return false
+	default:
+		return false
+	}
 }
 
 func (subscriber *execSessionSubscriber) sendHistory(frames []*execstream.Frame) bool {
@@ -612,7 +635,7 @@ func (session *execSession) recordFrame(frame *execstream.Frame) {
 	session.mu.Unlock()
 
 	for _, subscriber := range subscribers {
-		if !subscriber.enqueue(frame) {
+		if !subscriber.enqueue(frame, session.policy.blockOnSubscriberBackpressure) {
 			session.dropSubscriber(subscriber)
 		}
 	}
