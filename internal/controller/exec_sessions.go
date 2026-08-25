@@ -14,6 +14,11 @@ import (
 
 const execSessionReplayBufferBytes = 4 * 1024 * 1024
 
+var (
+	errExecSessionStdinUnavailable = errors.New("this exec session has no stdin enabled or it is already closed")
+	errExecSessionNoTTY            = errors.New("this exec session has no TTY")
+)
+
 type execSessionPolicy struct {
 	closeOnDetach                 bool
 	retainAfterExit               bool
@@ -488,7 +493,7 @@ func (session *execSession) writeStdin(data []byte) error {
 	defer session.mu.Unlock()
 
 	if session.stdin == nil || session.stdinClosed {
-		return errors.New("this exec session has no stdin enabled or it is already closed")
+		return errExecSessionStdinUnavailable
 	}
 
 	if len(data) == 0 {
@@ -511,7 +516,7 @@ func (session *execSession) resize(rows uint32, cols uint32) error {
 	defer session.mu.Unlock()
 
 	if !session.spec.tty {
-		return errors.New("this exec session has no TTY")
+		return errExecSessionNoTTY
 	}
 
 	return session.exec.Resize(rows, cols)

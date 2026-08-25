@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -268,26 +270,43 @@ func (controller *Controller) serveExecSession(
 	session.start()
 
 	readFramesErrCh := make(chan error, 1)
+	workerInputErrCh := make(chan error, 1)
 	go func() {
-		readFramesErrCh <- controller.readExecSessionFrames(ctx, wsConn, session, subscriber)
+		readFramesErrCh <- controller.readExecSessionFrames(ctx, wsConn, session, subscriber, workerInputErrCh)
 	}()
 
+	return controller.serveExecSessionFrames(ctx, wsConn, subscriber.frames, readFramesErrCh, workerInputErrCh)
+}
+
+func (controller *Controller) serveExecSessionFrames(
+	ctx context.Context,
+	wsConn *websocket.Conn,
+	outgoingFrames <-chan *execstream.Frame,
+	readFramesErrCh <-chan error,
+	workerInputErrCh <-chan error,
+) *responder.EmptyResponder {
 	for {
 		select {
+		case workerInputErr := <-workerInputErrCh:
+			controller.logger.Debugf("exec session: ignoring failed worker input: %v", workerInputErr)
 		case readFramesErr := <-readFramesErrCh:
+			if errors.Is(readFramesErr, errExecSessionClosed) {
+				controller.closeExecWebSocket(ctx, wsConn,
+					drainExecWebSocketFrames(ctx, wsConn), "Command finished")
+
+				return responder.Empty()
+			}
+
 			if readFramesErr != nil &&
-				!errors.Is(readFramesErr, errExecSessionDetached) &&
-				!errors.Is(readFramesErr, errExecSessionClosed) {
+				!errors.Is(readFramesErr, errExecSessionDetached) {
 				controller.logger.Warnf("failed to read and process exec frames from WebSocket: %v",
 					readFramesErr)
 			}
 
 			return responder.Empty()
-		case outgoingFrame, ok := <-subscriber.frames:
+		case outgoingFrame, ok := <-outgoingFrames:
 			if !ok {
-				if err := wsConn.Close(websocket.StatusNormalClosure, "Command finished"); err != nil {
-					controller.logger.Warnf("exec: failed to close WebSocket cleanly: %v", err)
-				}
+				controller.closeExecWebSocket(ctx, wsConn, readFramesErrCh, "Command finished")
 
 				return responder.Empty()
 			}
@@ -314,9 +333,79 @@ func (controller *Controller) serveExecSession(
 	}
 }
 
+func (controller *Controller) closeExecWebSocket(
+	ctx context.Context,
+	wsConn *websocket.Conn,
+	readErrCh <-chan error,
+	reason string,
+) {
+	const execWebSocketDeliveryTimeout = 30 * time.Second
+
+	pingCtx, pingCancel := context.WithTimeout(ctx, execWebSocketDeliveryTimeout)
+	defer pingCancel()
+
+	// A pong acknowledges the output and exit frames preceding this ping.
+	pongErrCh := make(chan error, 1)
+	go func() {
+		pongErrCh <- wsConn.Ping(pingCtx)
+	}()
+
+	for {
+		select {
+		case readErr := <-readErrCh:
+			if errors.Is(readErr, errExecWorkerInput) || errors.Is(readErr, errExecSessionClosed) {
+				readErrCh = drainExecWebSocketFrames(ctx, wsConn)
+
+				continue
+			}
+
+			var closeErr websocket.CloseError
+			if errors.As(readErr, &closeErr) || errors.Is(readErr, io.EOF) ||
+				errors.Is(readErr, errExecSessionDetached) {
+				return
+			}
+
+			readErrCh = drainExecWebSocketFrames(ctx, wsConn)
+		case pingErr := <-pongErrCh:
+			if pingErr != nil {
+				if errors.Is(pingErr, net.ErrClosed) || ctx.Err() != nil {
+					return
+				}
+
+				controller.logger.Warnf("exec session: failed to acknowledge delivered output: %v", pingErr)
+			}
+
+			if err := wsConn.Close(websocket.StatusNormalClosure, reason); err != nil {
+				controller.logger.Warnf("exec session: failed to close WebSocket connection: %v", err)
+			}
+
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func drainExecWebSocketFrames(ctx context.Context, wsConn *websocket.Conn) <-chan error {
+	readErrCh := make(chan error, 1)
+
+	go func() {
+		for {
+			if _, _, err := wsConn.Read(ctx); err != nil {
+				readErrCh <- err
+
+				return
+			}
+		}
+	}()
+
+	return readErrCh
+}
+
 var (
 	errExecSessionDetached = errors.New("exec session detached")
 	errExecSessionClosed   = errors.New("exec session closed")
+	errExecWorkerInput     = errors.New("exec worker rejected client input")
 )
 
 func parseExecSessionSpec(ctx *gin.Context, command string) (execSessionSpec, string, error) {
@@ -429,6 +518,7 @@ func (controller *Controller) readExecSessionFrames(
 	wsConn *websocket.Conn,
 	session *execSession,
 	subscriber *execSessionSubscriber,
+	workerInputErrCh chan<- error,
 ) error {
 	for {
 		var frame execstream.Frame
@@ -454,7 +544,15 @@ func (controller *Controller) readExecSessionFrames(
 		switch frame.Type {
 		case execstream.FrameTypeStdin:
 			if err := session.writeStdin(frame.Data); err != nil {
-				return fmt.Errorf("failed to handle %q frame: %w", frame.Type, err)
+				if errors.Is(err, errExecSessionStdinUnavailable) {
+					return fmt.Errorf("failed to handle %q frame: %w", frame.Type, err)
+				}
+
+				select {
+				case workerInputErrCh <- fmt.Errorf("%w: failed to handle %q frame: %w",
+					errExecWorkerInput, frame.Type, err):
+				default:
+				}
 			}
 		case execstream.FrameTypeResize:
 			if frame.Terminal == nil {
@@ -462,7 +560,15 @@ func (controller *Controller) readExecSessionFrames(
 			}
 
 			if err := session.resize(frame.Terminal.Rows, frame.Terminal.Cols); err != nil {
-				return fmt.Errorf("failed to handle %q frame: %w", frame.Type, err)
+				if errors.Is(err, errExecSessionNoTTY) {
+					return fmt.Errorf("failed to handle %q frame: %w", frame.Type, err)
+				}
+
+				select {
+				case workerInputErrCh <- fmt.Errorf("%w: failed to handle %q frame: %w",
+					errExecWorkerInput, frame.Type, err):
+				default:
+				}
 			}
 		case execstream.FrameTypeHistory:
 			if !session.policy.replayEnabled {
