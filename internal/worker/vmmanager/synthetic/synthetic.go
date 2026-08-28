@@ -121,6 +121,7 @@ func (vm *VM) Start(eventStreamer *client.EventStreamer) {
 }
 
 func (vm *VM) Suspend() <-chan error {
+	vm.EndpointSet().Stop()
 	errChan := make(chan error, 1)
 
 	errChan <- nil
@@ -135,6 +136,7 @@ func (vm *VM) IP(ctx context.Context) (string, error) {
 }
 
 func (vm *VM) Stop() <-chan error {
+	vm.EndpointSet().Stop()
 	errChan := make(chan error, 1)
 
 	errChan <- nil
@@ -157,6 +159,9 @@ func (vm *VM) Delete() error {
 
 func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 	defer vm.ConditionsSet().RemoveAll(v1.ConditionTypeRunning, v1.ConditionTypeSuspending, v1.ConditionTypeStopping)
+
+	vm.EndpointSet().Start()
+	defer vm.EndpointSet().Stop()
 
 	// Launch the startup script goroutine as close as possible
 	// to the VM startup (below) to avoid "tart ip" timing out

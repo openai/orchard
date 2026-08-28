@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
+	"github.com/cirruslabs/orchard/internal/worker/runtime"
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager"
+	"github.com/cirruslabs/orchard/internal/worker/vmmanager/base"
+	"github.com/cirruslabs/orchard/internal/worker/vmmanager/synthetic"
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/stretchr/testify/require"
@@ -82,8 +85,9 @@ func TestMonitorWaitsForStopBeforeApplyingGeneration(t *testing.T) {
 			defer server.Close()
 			apiClient, err := client.New(client.WithAddress(server.URL))
 			require.NoError(t, err)
-			worker := &Worker{client: apiClient}
+			worker := &Worker{client: apiClient, runtime: runtime.NewSynthetic()}
 			vm := &delayedStopVM{
+				VM:          &synthetic.VM{VM: base.NewVM(zap.NewNop().Sugar())},
 				resource:    v1.VM{Meta: v1.Meta{Name: "test-vm"}},
 				stopStarted: make(chan struct{}),
 				stopResult:  make(chan error),

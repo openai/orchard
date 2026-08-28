@@ -30,6 +30,8 @@ type Worker struct {
 	// Runtime defines a runtime provided by this worker.
 	Runtime Runtime `json:"runtime,omitempty"`
 
+	Capabilities WorkerCapabilities `json:"capabilities,omitempty"`
+
 	Meta
 }
 
@@ -38,6 +40,23 @@ func (worker Worker) Offline(workerOfflineTimeout time.Duration) bool {
 }
 
 func (worker *Worker) SetVersion(_ uint64) {}
+
+type WorkerCapability string
+
+const WorkerCapabilityVMEndpoints WorkerCapability = "vm-endpoints"
+
+type WorkerCapabilities []WorkerCapability
+
+//nolint:modernize // preserve the original capability membership helper
+func (workerCapabilities WorkerCapabilities) Has(capability WorkerCapability) bool {
+	for _, workerCapability := range workerCapabilities {
+		if workerCapability == capability {
+			return true
+		}
+	}
+
+	return false
+}
 
 func (worker *Worker) Match(filter Filter) bool {
 	return false

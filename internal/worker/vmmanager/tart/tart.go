@@ -60,14 +60,16 @@ func NewVM(
 ) *VM {
 	vmContext, vmContextCancel := context.WithCancel(context.Background())
 
+	logger = logger.With(
+		"vm_uid", vmResource.UID,
+		"vm_name", vmResource.Name,
+		"vm_restart_count", vmResource.RestartCount,
+	)
+
 	vm := &VM{
 		onDiskName: ondiskname.NewFromResource(vmResource),
 		resource:   vmResource,
-		logger: logger.With(
-			"vm_uid", vmResource.UID,
-			"vm_name", vmResource.Name,
-			"vm_restart_count", vmResource.RestartCount,
-		),
+		logger:     logger,
 
 		ctx:    vmContext,
 		cancel: vmContextCancel,
@@ -303,6 +305,9 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 
 	resource := vm.Resource()
 
+	vm.EndpointSet().Start()
+	defer vm.EndpointSet().Stop()
+
 	// Launch the startup script goroutine as close as possible
 	// to the VM startup (below) to avoid "tart ip" timing out
 	if resource.StartupScript != nil {
@@ -421,6 +426,7 @@ func (vm *VM) IP(ctx context.Context) (string, error) {
 }
 
 func (vm *VM) Suspend() <-chan error {
+	vm.EndpointSet().Stop()
 	errCh := make(chan error, 1)
 
 	select {
@@ -453,6 +459,7 @@ func (vm *VM) Suspend() <-chan error {
 }
 
 func (vm *VM) Stop() <-chan error {
+	vm.EndpointSet().Stop()
 	vm.stopMtx.Lock()
 	defer vm.stopMtx.Unlock()
 	if vm.stopDone != nil {

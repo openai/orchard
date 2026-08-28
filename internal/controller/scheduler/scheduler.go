@@ -279,6 +279,12 @@ NextVM:
 				continue NextWorker
 			}
 
+			// Don't schedule VMs with endpoints on workers that don't support them
+			if len(unscheduledVM.Endpoints) != 0 &&
+				!worker.Capabilities.Has(v1.WorkerCapabilityVMEndpoints) {
+				continue NextWorker
+			}
+
 			err := scheduler.store.Update(func(txn storepkg.Transaction) error {
 				currentUnscheduledVM, err := txn.GetVM(unscheduledVM.Name)
 				if err != nil {
@@ -291,7 +297,8 @@ NextVM:
 					return err
 				}
 
-				if currentUnscheduledVM.UID != unscheduledVM.UID {
+				if currentUnscheduledVM.UID != unscheduledVM.UID ||
+					currentUnscheduledVM.Generation != unscheduledVM.Generation {
 					// The unscheduled VM had changed, so we'll re-evaluate a new
 					// version of it in the next scheduling loop iteration
 					return ErrVMSchedulingSkipped
@@ -330,6 +337,12 @@ NextVM:
 				}
 
 				if !compatibleArchAndRuntime(unscheduledVM, *currentWorker) {
+					return ErrWorkerSchedulingSkipped
+				}
+
+				// Don't schedule VMs with endpoints on workers that don't support them
+				if len(unscheduledVM.Endpoints) != 0 &&
+					!currentWorker.Capabilities.Has(v1.WorkerCapabilityVMEndpoints) {
 					return ErrWorkerSchedulingSkipped
 				}
 
@@ -504,6 +517,11 @@ func (scheduler *Scheduler) healthCheckingLoopIteration() (int, error) {
 func (scheduler *Scheduler) healthCheckVM(txn storepkg.Transaction, vm v1.VM) error {
 	logger := scheduler.logger.With("vm_name", vm.Name, "vm_uid", vm.UID, "vm_restart_count", vm.RestartCount)
 
+	// Preserve the current endpoint observations for comparison below and reset them,
+	// so every VM transition persisted below discards the stale endpoint observations
+	savedObservedEndpoints := vm.ObservedEndpoints
+	vm.ObservedEndpoints = nil
+
 	// Schedule a VM restart if the restart policy mandates it
 	needsRestart := vm.RestartPolicy == v1.RestartPolicyOnFailure &&
 		vm.Status == v1.VMStatusFailed &&
@@ -582,6 +600,25 @@ func (scheduler *Scheduler) healthCheckVM(txn storepkg.Transaction, vm v1.VM) er
 			Type:  v1.ConditionTypeRunning,
 			State: v1.ConditionStateFalse,
 		})
+
+		return txn.SetVM(vm)
+	}
+
+	// Report unsupported endpoints to clients without failing the VM
+	if !worker.Capabilities.Has(v1.WorkerCapabilityVMEndpoints) {
+		vm.ObservedEndpoints = make([]v1.EndpointStatus, 0, len(vm.Endpoints))
+
+		for _, endpoint := range vm.Endpoints {
+			vm.ObservedEndpoints = append(vm.ObservedEndpoints, v1.EndpointStatus{
+				Name:    endpoint.Name,
+				State:   v1.EndpointStateError,
+				Message: "worker doesn't support VM endpoints",
+			})
+		}
+
+		if slices.Equal(savedObservedEndpoints, vm.ObservedEndpoints) {
+			return nil
+		}
 
 		return txn.SetVM(vm)
 	}

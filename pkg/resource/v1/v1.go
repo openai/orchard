@@ -189,17 +189,18 @@ type VMSpec struct {
 	// so this field defaults to that when not set.
 	Runtime Runtime `json:"runtime,omitempty"`
 
-	NetSoftnetDeprecated bool       `json:"net-softnet,omitempty"`
-	NetSoftnet           bool       `json:"netSoftnet,omitempty"`
-	NetSoftnetAllow      []string   `json:"netSoftnetAllow,omitempty"`
-	NetSoftnetBlock      []string   `json:"netSoftnetBlock,omitempty"`
-	Suspendable          bool       `json:"suspendable,omitempty"`
-	PowerState           PowerState `json:"powerState,omitempty"`
+	Endpoints            []EndpointSpec `json:"endpoints,omitempty"`
+	NetSoftnetDeprecated bool           `json:"net-softnet,omitempty"` //nolint:tagliatelle // legacy JSON key
+	NetSoftnet           bool           `json:"netSoftnet,omitempty"`
+	NetSoftnetAllow      []string       `json:"netSoftnetAllow,omitempty"`
+	NetSoftnetBlock      []string       `json:"netSoftnetBlock,omitempty"`
+	Suspendable          bool           `json:"suspendable,omitempty"`
+	PowerState           PowerState     `json:"powerState,omitempty"`
 }
 
-func (vm VMSpec) SemanticallyEqual(other VMSpec) bool {
-	// Treat omitted and explicitly empty collections as the same VM specification
-	return cmp.Equal(vm, other, cmpopts.EquateEmpty())
+// SemanticallyEqual treats omitted and explicitly empty collections as equal.
+func SemanticallyEqual[T any](current, desired T) bool {
+	return cmp.Equal(current, desired, cmpopts.EquateEmpty())
 }
 
 func (vm VMSpec) SoftnetEnabled() bool {
@@ -223,6 +224,9 @@ type VMState struct {
 	// ObservedGeneration corresponds to the Generation of VM specification
 	// on which the worker had acted upon.
 	ObservedGeneration uint64 `json:"observedGeneration"`
+
+	// ObservedEndpoints contains the current endpoint statuses.
+	ObservedEndpoints []EndpointStatus `json:"observedEndpoints,omitempty"`
 
 	Conditions []Condition `json:"conditions,omitempty"`
 }

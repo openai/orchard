@@ -14,11 +14,11 @@ func TestVM(t *testing.T) {
 	cmp.Equal(v1.VM{}, v1.VM{})
 }
 
-func TestVMSpecSemanticallyEqualEquatesEmptySlices(t *testing.T) {
+func TestSemanticallyEqualEquatesEmptySlices(t *testing.T) {
 	nilSlicesSpec := v1.VMSpec{}
 	emptySlicesSpec := v1.VMSpec{
 		NetSoftnetAllow: []string{},
 		NetSoftnetBlock: []string{},
 	}
-	require.True(t, nilSlicesSpec.SemanticallyEqual(emptySlicesSpec))
+	require.True(t, v1.SemanticallyEqual(nilSlicesSpec, emptySlicesSpec))
 }
