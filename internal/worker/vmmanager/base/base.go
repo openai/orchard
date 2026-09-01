@@ -103,10 +103,11 @@ func (vm *VM) ConditionsSet() mapset.Set[v1.ConditionType] {
 }
 
 func (vm *VM) Conditions() []v1.Condition {
-	// Only expose a minimum amount of conditions necessary
-	// for the Orchard Controller to make decisions
+	// The worker must observe transitions before applying a new specification.
 	return []v1.Condition{
 		vm.conditionTypeToCondition(v1.ConditionTypeRunning),
+		vm.conditionTypeToCondition(v1.ConditionTypeSuspending),
+		vm.conditionTypeToCondition(v1.ConditionTypeStopping),
 	}
 }
 

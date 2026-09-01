@@ -32,6 +32,9 @@ type VM struct {
 
 	wg *sync.WaitGroup
 
+	stopMtx  sync.Mutex
+	stopDone chan error
+
 	dialer dialer.Dialer
 
 	*base.VM
@@ -197,7 +200,8 @@ func (vm *VM) cloneAndConfigure(ctx context.Context) error {
 }
 
 func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
-	defer vm.ConditionsSet().RemoveAll(v1.ConditionTypeRunning, v1.ConditionTypeSuspending, v1.ConditionTypeStopping)
+	// Stop owns Stopping until both its command and this goroutine finish.
+	defer vm.ConditionsSet().RemoveAll(v1.ConditionTypeRunning, v1.ConditionTypeSuspending)
 
 	// Launch the startup script goroutine as close as possible
 	// to the VM startup (below) to avoid "vetu ip" timing out
@@ -257,37 +261,44 @@ func (vm *VM) Suspend() <-chan error {
 }
 
 func (vm *VM) Stop() <-chan error {
-	errCh := make(chan error, 1)
-
-	select {
-	case <-vm.ctx.Done():
-		// VM is already suspended/stopped
-		errCh <- nil
-
-		return errCh
-	default:
-		// VM is still running
+	vm.stopMtx.Lock()
+	defer vm.stopMtx.Unlock()
+	if vm.stopDone != nil {
+		return vm.stopDone
 	}
 
+	done := make(chan error)
+	vm.stopDone = done
+	ctx, cancel, wg := vm.ctx, vm.cancel, vm.wg
 	vm.SetStatusMessage("Stopping VM")
 	vm.ConditionsSet().Add(v1.ConditionTypeStopping)
 
 	go func() {
-		// Try to gracefully terminate the VM
-		_, _, _ = Vetu(context.Background(), zap.NewNop().Sugar(), "stop", "--timeout", "5", vm.id())
+		if ctx.Err() == nil {
+			// Try to gracefully terminate the VM.
+			_, _, _ = Vetu(context.WithoutCancel(ctx), zap.NewNop().Sugar(), "stop", "--timeout", "5", vm.id())
+		}
 
-		// Terminate the VM goroutine ("vetu pull", "vetu clone", "vetu run", etc.) via the context
-		vm.cancel()
-		vm.wg.Wait()
+		// Cancellation requests shutdown; it does not establish completion.
+		cancel()
+		wg.Wait()
 
-		// We don't return an error because we always terminate a VM
-		errCh <- nil
+		vm.stopMtx.Lock()
+		vm.ConditionsSet().Remove(v1.ConditionTypeStopping)
+		// Closing broadcasts successful completion to every Stop caller.
+		close(done)
+		vm.stopMtx.Unlock()
 	}()
 
-	return errCh
+	return done
 }
 
 func (vm *VM) Start(eventStreamer *client.EventStreamer) {
+	// The worker defers Start while Stopping is true.
+	vm.stopMtx.Lock()
+	defer vm.stopMtx.Unlock()
+	vm.stopDone = nil
+
 	vm.SetStatusMessage("Starting VM")
 	vm.ConditionsSet().Add(v1.ConditionTypeRunning)
 
