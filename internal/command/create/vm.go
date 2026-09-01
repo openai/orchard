@@ -29,6 +29,7 @@ var netBridged string
 var headless bool
 var nested bool
 var noAudio bool
+var noClipboard bool
 var suspendable bool
 var username string
 var password string
@@ -72,6 +73,7 @@ func newCreateVMCommand() *cobra.Command {
 	command.Flags().BoolVar(&headless, "headless", true, "whether to run without graphics")
 	command.Flags().BoolVar(&nested, "nested", false, "enable nested virtualization")
 	command.Flags().BoolVar(&noAudio, "no-audio", false, "disable audio pass-through to the host")
+	command.Flags().BoolVar(&noClipboard, "no-clipboard", false, "disable clipboard sharing between host and guest")
 	command.Flags().BoolVar(&suspendable, "suspendable", false, "treat the VM as suspendable, "+
 		"disabling certain devices for suspendability support and issuing \"tart suspend\" instead of \"tart stop\" "+
 		"when VM's specification is updated, thus preserving the VM's state between specification generations")
@@ -159,6 +161,7 @@ func runCreateVM(cmd *cobra.Command, args []string) error {
 		Headless:     headless,
 		Nested:       nested,
 		NoAudio:      noAudio,
+		NoClipboard:  noClipboard,
 		Username:     username,
 		Password:     password,
 		RandomSerial: randomSerial,

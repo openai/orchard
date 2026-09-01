@@ -307,6 +307,10 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 		runArgs = append(runArgs, "--no-audio")
 	}
 
+	if vm.resource.NoClipboard {
+		runArgs = append(runArgs, "--no-clipboard")
+	}
+
 	if vm.resource.Suspendable {
 		runArgs = append(runArgs, "--suspendable")
 	}

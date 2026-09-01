@@ -99,6 +99,7 @@ func runGetVM(cmd *cobra.Command, args []string) error {
 	table.AddRow("Headless mode", vm.Headless)
 	table.AddRow("Nested virtualization", vm.Nested)
 	table.AddRow("Audio disabled", vm.NoAudio)
+	table.AddRow("Clipboard sharing disabled", vm.NoClipboard)
 	table.AddRow("Status", vm.Status)
 	table.AddRow("Status message", vm.StatusMessage)
 	table.AddRow("Assigned worker", nonEmptyOrNone(vm.Worker))
