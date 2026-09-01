@@ -303,6 +303,10 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 		runArgs = append(runArgs, "--nested")
 	}
 
+	if vm.resource.NoAudio {
+		runArgs = append(runArgs, "--no-audio")
+	}
+
 	if vm.resource.Suspendable {
 		runArgs = append(runArgs, "--suspendable")
 	}
