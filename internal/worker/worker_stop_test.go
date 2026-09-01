@@ -26,6 +26,8 @@ type delayedStopVM struct {
 	status      v1.VMStatus
 	stopStarted chan struct{}
 	stopResult  chan error
+	conditions  []v1.Condition
+	starts      int
 }
 
 func (vm *delayedStopVM) OnDiskName() ondiskname.OnDiskName {
@@ -34,13 +36,94 @@ func (vm *delayedStopVM) OnDiskName() ondiskname.OnDiskName {
 
 func (vm *delayedStopVM) Status() v1.VMStatus { return vm.status }
 
-func (vm *delayedStopVM) Conditions() []v1.Condition { return nil }
+func (vm *delayedStopVM) Conditions() []v1.Condition { return vm.conditions }
+
+func (vm *delayedStopVM) Resource() v1.VM { return vm.resource }
+
+func (vm *delayedStopVM) SetResource(resource v1.VM) {
+	vm.resource = resource
+	vm.resource.ObservedGeneration = resource.Generation
+}
+
+func (vm *delayedStopVM) StatusMessage() string { return "" }
+
+func (vm *delayedStopVM) Start(streamer *client.EventStreamer) {
+	vm.starts++
+	v1.ConditionsSet(&vm.conditions, v1.Condition{
+		Type: v1.ConditionTypeRunning, State: v1.ConditionStateTrue,
+	})
+	_ = streamer.Close()
+}
 
 func (vm *delayedStopVM) Err() error { return errLocalVMFailed }
 
 func (vm *delayedStopVM) Stop() <-chan error {
 	close(vm.stopStarted)
+	if vm.conditions != nil {
+		v1.ConditionsSet(&vm.conditions, v1.Condition{
+			Type: v1.ConditionTypeRunning, State: v1.ConditionStateFalse,
+		})
+		v1.ConditionsSet(&vm.conditions, v1.Condition{
+			Type: v1.ConditionTypeStopping, State: v1.ConditionStateTrue,
+		})
+	}
 	return vm.stopResult
+}
+
+//nolint:exhaustruct_v5 // Fixture fields unrelated to lifecycle transitions use their zero values.
+func TestMonitorWaitsForStopBeforeApplyingGeneration(t *testing.T) {
+	for _, powerState := range []v1.PowerState{v1.PowerStateStopped, v1.PowerStateRunning} {
+		t.Run(string(powerState), func(t *testing.T) {
+			events := make(chan struct{}, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.WriteHeader(http.StatusOK)
+				events <- struct{}{}
+			}))
+			defer server.Close()
+			apiClient, err := client.New(client.WithAddress(server.URL))
+			require.NoError(t, err)
+			worker := &Worker{client: apiClient}
+			vm := &delayedStopVM{
+				resource:    v1.VM{Meta: v1.Meta{Name: "test-vm"}},
+				stopStarted: make(chan struct{}),
+				stopResult:  make(chan error),
+				conditions: []v1.Condition{{
+					Type: v1.ConditionTypeRunning, State: v1.ConditionStateTrue,
+				}},
+			}
+			desired := vm.resource
+			desired.Generation = 1
+			desired.PowerState = powerState
+			update := func(context.Context, v1.VM) error { return nil }
+
+			// Stop clears Running immediately, before the command has finished.
+			// Neither this reconciliation nor later ones may acknowledge or restart it.
+			for range 2 {
+				require.NoError(t, worker.monitorRunningVM(t.Context(), &desired, vm, update))
+				require.Zero(t, vm.resource.Generation, "the specification changed before Stop completed")
+				require.Zero(t, desired.ObservedGeneration, "shutdown was acknowledged before it completed")
+				require.Zero(t, vm.starts, "the VM restarted before Stop completed")
+			}
+
+			close(vm.stopResult)
+			v1.ConditionsSet(&vm.conditions, v1.Condition{
+				Type: v1.ConditionTypeStopping, State: v1.ConditionStateFalse,
+			})
+			require.NoError(t, worker.monitorRunningVM(t.Context(), &desired, vm, update))
+			require.Equal(t, desired.Generation, vm.resource.Generation)
+			require.Equal(t, desired.Generation, desired.ObservedGeneration)
+			if powerState == v1.PowerStateRunning {
+				require.Equal(t, 1, vm.starts)
+				select {
+				case <-events:
+				case <-time.After(time.Second):
+					t.Fatal("restart event stream did not close")
+				}
+			} else {
+				require.Zero(t, vm.starts)
+			}
+		})
+	}
 }
 
 func TestSyncVMsWaitsForVMShutdown(t *testing.T) {

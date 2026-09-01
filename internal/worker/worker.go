@@ -673,6 +673,7 @@ func (worker *Worker) reconcileRunningVM(vmResource *v1.VM, vm vmmanager.VM) {
 
 		if shouldStop {
 			vm.Stop()
+			return
 		} else {
 			vm.Suspend()
 		}
