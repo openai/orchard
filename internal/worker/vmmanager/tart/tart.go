@@ -2,7 +2,9 @@ package tart
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +20,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
+
+const tartDeleteExitCodeNotFound = 2
 
 type VM struct {
 	onDiskName ondiskname.OnDiskName
@@ -480,7 +484,12 @@ func (vm *VM) Delete() error {
 
 	_, _, err := Tart(context.Background(), vm.logger, "delete", vm.id())
 	if err != nil {
-		return fmt.Errorf("%w: failed to delete VM: %v", base.ErrVMFailed, err)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == tartDeleteExitCodeNotFound {
+			return nil
+		}
+
+		return fmt.Errorf("%w: failed to delete VM: %w", base.ErrVMFailed, err)
 	}
 
 	return nil
