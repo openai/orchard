@@ -153,6 +153,15 @@ func (vm *VM) cloneAndConfigure(ctx context.Context) error {
 		vm.imageFQN.Store(&fqn)
 	}
 
+	// A suspended VM must resume with the configuration used to save its state.
+	info, err := Info(ctx, vm.logger, vm.id())
+	if err != nil {
+		return err
+	}
+	if info.State == "suspended" {
+		return nil
+	}
+
 	// Set memory
 	vm.SetStatusMessage("configuring VM...")
 
