@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"crypto/subtle"
 	"errors"
 	"net/http"
@@ -12,7 +11,6 @@ import (
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
 	"github.com/cirruslabs/orchard/internal/responder"
 	v1pkg "github.com/cirruslabs/orchard/pkg/resource/v1"
-	"github.com/cirruslabs/orchard/rpc"
 	"github.com/deckarep/golang-set/v2"
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
@@ -20,7 +18,6 @@ import (
 	"github.com/samber/lo"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.uber.org/zap"
-	"google.golang.org/grpc/metadata"
 )
 
 const ctxServiceAccountKey = "service-account"
@@ -309,28 +306,6 @@ func (controller *Controller) authorizeBase(
 
 	return responder.JSON(http.StatusUnauthorized,
 		NewErrorResponse("%s: %s", hint, strings.Join(humanizedRoles, ", ")))
-}
-
-func (controller *Controller) authorizeGRPC(ctx context.Context, scopes ...v1pkg.ServiceAccountRole) bool {
-	if controller.insecureAuthDisabled {
-		return true
-	}
-
-	name := metadata.ValueFromIncomingContext(ctx, rpc.MetadataServiceAccountNameKey)
-	if len(name) != 1 {
-		return false
-	}
-	token := metadata.ValueFromIncomingContext(ctx, rpc.MetadataServiceAccountTokenKey)
-	if len(token) != 1 {
-		return false
-	}
-
-	serviceAccount, err := controller.fetchServiceAccount(name[0], token[0])
-	if err != nil {
-		return false
-	}
-
-	return mapset.NewSet[v1pkg.ServiceAccountRole](serviceAccount.Roles...).Contains(scopes...)
 }
 
 type storeTransactionFunc func(operation func(txn storepkg.Transaction) error) error

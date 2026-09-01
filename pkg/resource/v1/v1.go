@@ -377,7 +377,6 @@ const (
 type ControllerCapability string
 
 const (
-	ControllerCapabilityRPCV1           ControllerCapability = "rpc-v1"
 	ControllerCapabilityRPCV2           ControllerCapability = "rpc-v2"
 	ControllerCapabilityVMStateEndpoint ControllerCapability = "vm-state-endpoint"
 )

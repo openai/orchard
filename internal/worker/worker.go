@@ -20,7 +20,6 @@ import (
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager"
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
-	"github.com/cirruslabs/orchard/rpc"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-multierror"
@@ -31,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -247,7 +245,7 @@ func (worker *Worker) runNewSession(ctx context.Context, onWatchHealthy func()) 
 	}
 
 	group, sessionCtx := errgroup.WithContext(subCtx)
-	worker.superviseRPCWatch(sessionCtx, ctx, group, info, onWatchHealthy)
+	worker.superviseRPCWatch(sessionCtx, ctx, group, onWatchHealthy)
 
 	// Sync on-disk VMs
 	if err := worker.syncOnDiskVMsWithInventory(sessionCtx, vmInfos); err != nil {
@@ -329,32 +327,22 @@ func (worker *Worker) superviseRPCWatch(
 	sessionCtx context.Context,
 	operationCtx context.Context,
 	group *errgroup.Group,
-	info v1.ControllerInfo,
 	onWatchHealthy func(),
 ) {
-	watchRPC := worker.watchRPC
-	rpcVersion := "v1"
-
-	if info.Capabilities.Has(v1.ControllerCapabilityRPCV2) {
-		worker.logger.Infof("using WebSocket-based v2 RPC")
-		watchRPC = worker.watchRPCV2
-		rpcVersion = "v2"
-	} else {
-		worker.logger.Infof("using gRPC-based v1 RPC")
-	}
+	worker.logger.Infof("using WebSocket-based v2 RPC")
 
 	watchEstablished := make(chan struct{})
 
 	group.Go(func() error {
-		if err := watchRPC(sessionCtx, operationCtx, func() { close(watchEstablished) }); err != nil {
+		if err := worker.watchRPCV2(sessionCtx, operationCtx, func() { close(watchEstablished) }); err != nil {
 			if sessionCtx.Err() != nil {
 				return sessionCtx.Err()
 			}
 
-			return fmt.Errorf("%w: failed to watch RPC %s: %w", errRPCWatchDisconnected, rpcVersion, err)
+			return fmt.Errorf("%w: failed to watch RPC v2: %w", errRPCWatchDisconnected, err)
 		}
 
-		return fmt.Errorf("%w: RPC %s watch closed unexpectedly", errRPCWatchDisconnected, rpcVersion)
+		return fmt.Errorf("%w: RPC v2 watch closed unexpectedly", errRPCWatchDisconnected)
 	})
 
 	group.Go(func() error {
@@ -837,13 +825,6 @@ func (worker *Worker) createVM(odn ondiskname.OnDiskName, vmResource v1.VM) {
 	vm := worker.runtime.NewVM(vmResource, eventStreamer, worker.vmPullTimeHistogram, worker.dialer, worker.logger)
 
 	worker.vmm.Put(odn, vm)
-}
-
-func (worker *Worker) grpcMetadata() metadata.MD {
-	return metadata.Join(
-		worker.client.GPRCMetadata(),
-		metadata.Pairs(rpc.MetadataWorkerNameKey, worker.name),
-	)
 }
 
 func (worker *Worker) requestVMSyncing() {

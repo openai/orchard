@@ -29,9 +29,6 @@ func StartIntegrationTestEnvironmentWithAdditionalOpts(
 ) (*client.Client, *controller.Controller, *worker.Worker) {
 	t.Setenv("ORCHARD_HOME", t.TempDir())
 
-	// Enable experimental RPC v2 by default in tests
-	additionalControllerOpts = append(additionalControllerOpts, controller.WithExperimentalRPCV2())
-
 	devController, devWorker, err := dev.CreateDevControllerAndWorker(t.TempDir(),
 		":0", nil, additionalControllerOpts, additionalWorkerOpts)
 	require.NoError(t, err)

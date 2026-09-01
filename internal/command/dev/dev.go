@@ -31,7 +31,6 @@ var ErrFailed = errors.New("failed to run development controller and worker")
 var devDataDirPath string
 var apiPrefix string
 var stringToStringResources map[string]string
-var experimentalRPCV2 bool
 var addressPprof string
 var synthetic bool
 var workers int
@@ -51,8 +50,6 @@ func NewCommand() *cobra.Command {
 			"behind an HTTP proxy together with other services")
 	command.Flags().StringToStringVar(&stringToStringResources, "resources", map[string]string{},
 		"resources that the development worker will provide")
-	command.Flags().BoolVar(&experimentalRPCV2, "experimental-rpc-v2", false,
-		"enable experimental RPC v2 (https://github.com/cirruslabs/orchard/issues/235)")
 	command.Flags().StringVar(&addressPprof, "listen-pprof", "",
 		"start pprof HTTP server on localhost:6060 for diagnostic purposes (e.g. \"localhost:6060\")")
 	command.Flags().BoolVar(&synthetic, "synthetic", false,
@@ -102,10 +99,6 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	if apiPrefix != "" {
 		additionalControllerOpts = append(additionalControllerOpts, controller.WithAPIPrefix(apiPrefix))
-	}
-
-	if experimentalRPCV2 {
-		additionalControllerOpts = append(additionalControllerOpts, controller.WithExperimentalRPCV2())
 	}
 
 	if insecureAllowHostDirs {

@@ -40,4 +40,6 @@ This will start Orchard Controller and a single Orchard Worker on your local mac
 
 You can interact with the newly created cluster using the `orchard` CLI or programmatically, through the built-in REST API server.
 
+Controller-worker communication uses WebSocket-based RPC v2. Controllers that only support gRPC-based RPC v1 must be upgraded before starting a current worker. When upgrading an existing controller, first ensure its workers support RPC v2. The `--experimental-rpc-v2` and `--no-experimental-rpc-v2` flags have been removed.
+
 Please check out the [official documentation](https://tart.run/orchard/quick-start/) for more information and/or feel free to use [issues](https://github.com/cirruslabs/orchard/issues) for the remaining questions.

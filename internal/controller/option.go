@@ -78,12 +78,6 @@ func WithExecSSHConnectionKeepaliveInterval(execSSHConnectionKeepaliveInterval t
 	}
 }
 
-func WithExperimentalRPCV2() Option {
-	return func(controller *Controller) {
-		controller.experimentalRPCV2 = true
-	}
-}
-
 func WithDisableDBCompression() Option {
 	return func(controller *Controller) {
 		controller.disableDBCompression = true

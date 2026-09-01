@@ -19,11 +19,7 @@ import (
 	"github.com/cirruslabs/orchard/internal/config"
 	"github.com/cirruslabs/orchard/internal/dialer"
 	"github.com/cirruslabs/orchard/internal/version"
-	"github.com/cirruslabs/orchard/rpc"
 	"github.com/coder/websocket"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -124,7 +120,7 @@ func New(opts ...Option) (*Client, error) {
 	client.baseURL = url
 
 	// Figure out if HTTP (insecure) or HTTPS (secure) was requested,
-	// so we can further adapt for gRPC and WebSocket usage patterns
+	// so we can select the corresponding WebSocket scheme
 	switch client.baseURL.Scheme {
 	case "http":
 		client.insecure = true
@@ -136,31 +132,6 @@ func New(opts ...Option) (*Client, error) {
 	}
 
 	return client, nil
-}
-
-func (client *Client) GRPCTarget() string {
-	return client.baseURL.Host
-}
-
-func (client *Client) GRPCTransportCredentials() credentials.TransportCredentials {
-	if client.insecure {
-		return insecure.NewCredentials()
-	}
-
-	return credentials.NewTLS(client.tlsConfig)
-}
-
-func (client *Client) GPRCMetadata() metadata.MD {
-	result := map[string]string{}
-
-	if client.serviceAccountName != "" && client.serviceAccountToken != "" {
-		result = map[string]string{
-			rpc.MetadataServiceAccountNameKey:  client.serviceAccountName,
-			rpc.MetadataServiceAccountTokenKey: client.serviceAccountToken,
-		}
-	}
-
-	return metadata.New(result)
 }
 
 func (client *Client) configureFromDefaultContext() error {

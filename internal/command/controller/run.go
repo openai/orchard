@@ -31,8 +31,6 @@ var debug bool
 var noTLS bool
 var sshNoClientAuth bool
 var insecureAllowHostDirs bool
-var experimentalRPCV2 bool
-var noExperimentalRPCV2 bool
 var experimentalPingInterval time.Duration
 var experimentalDisableDBCompression bool
 var workerOfflineTimeout time.Duration
@@ -77,11 +75,6 @@ func newRunCommand() *cobra.Command {
 			"thus only authenticating on the target worker/VM's SSH server")
 	cmd.Flags().BoolVar(&insecureAllowHostDirs, "insecure-allow-host-dirs", false,
 		"allow unsafe path-based local host directory sharing")
-	cmd.Flags().BoolVar(&experimentalRPCV2, "experimental-rpc-v2", false,
-		"enable experimental RPC v2 (https://github.com/cirruslabs/orchard/issues/235)")
-	_ = cmd.Flags().MarkHidden("experimental-rpc-v2")
-	cmd.Flags().BoolVar(&noExperimentalRPCV2, "no-experimental-rpc-v2", false,
-		"disable experimental RPC v2 (https://github.com/cirruslabs/orchard/issues/235)")
 	cmd.Flags().DurationVar(&experimentalPingInterval, "experimental-ping-interval", 0,
 		"interval between WebSocket PING's sent by the controller to workers and clients, "+
 			"useful when facing intermediate load balancers/proxies that have timeouts "+
@@ -186,9 +179,7 @@ func runController(cmd *cobra.Command, args []string) (err error) {
 			Certificates: []tls.Certificate{
 				controllerCert,
 			},
-			// Since gRPC clients started enforcing ALPN at some point, we need to advertise it
-			//
-			// See https://github.com/grpc/grpc-go/issues/7922 for more details.
+			// Advertise the HTTP protocols supported by the controller.
 			NextProtos: []string{"http/1.1", "h2"},
 		}))
 	}
@@ -200,18 +191,6 @@ func runController(cmd *cobra.Command, args []string) (err error) {
 		}
 
 		controllerOpts = append(controllerOpts, controller.WithSSHServer(addressSSH, signer, sshNoClientAuth))
-	}
-
-	if experimentalRPCV2 && noExperimentalRPCV2 {
-		return fmt.Errorf("--experimental-rpc-v2 and --no-experimental-rpc-v2 flags are mutually exclusive")
-	}
-
-	if experimentalRPCV2 {
-		logger.Warn("--experimental-rpc-v2 flag is deprecated: experimental RPC v2 is now enabled by default")
-	}
-
-	if !noExperimentalRPCV2 {
-		controllerOpts = append(controllerOpts, controller.WithExperimentalRPCV2())
 	}
 
 	if experimentalPingInterval != 0 {

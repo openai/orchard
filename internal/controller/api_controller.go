@@ -17,12 +17,8 @@ func (controller *Controller) controllerInfo(ctx *gin.Context) responder.Respond
 	}
 
 	capabilities := []v1pkg.ControllerCapability{
-		v1pkg.ControllerCapabilityRPCV1,
+		v1pkg.ControllerCapabilityRPCV2,
 		v1pkg.ControllerCapabilityVMStateEndpoint,
-	}
-
-	if controller.experimentalRPCV2 {
-		capabilities = append(capabilities, v1pkg.ControllerCapabilityRPCV2)
 	}
 
 	return responder.JSON(http.StatusOK, &v1pkg.ControllerInfo{

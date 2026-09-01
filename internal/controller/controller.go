@@ -20,7 +20,6 @@ import (
 	"github.com/cirruslabs/orchard/internal/netconstants"
 	"github.com/cirruslabs/orchard/internal/opentelemetry"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
-	"github.com/cirruslabs/orchard/rpc"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -29,8 +28,6 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"golang.org/x/sync/singleflight"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
 )
 
 var (
@@ -50,7 +47,6 @@ type Controller struct {
 	scheduler                          *scheduler.Scheduler
 	store                              storepkg.Store
 	logger                             *zap.SugaredLogger
-	grpcServer                         *grpc.Server
 	workerNotifier                     *notifier.Notifier
 	connRendezvous                     *rendezvous.Rendezvous[rendezvous.ResultWithErrorMessage[net.Conn]]
 	ipRendezvous                       *rendezvous.Rendezvous[rendezvous.ResultWithErrorMessage[string]]
@@ -58,7 +54,6 @@ type Controller struct {
 	workerOfflineTimeout               time.Duration
 	execSessionRetentionTTL            time.Duration
 	execSSHConnectionKeepaliveInterval time.Duration
-	experimentalRPCV2                  bool
 	disableDBCompression               bool
 	pingInterval                       time.Duration
 	synthetic                          bool
@@ -71,8 +66,6 @@ type Controller struct {
 	execSSHClients  *execSSHClientPool
 
 	single singleflight.Group
-
-	rpc.UnimplementedControllerServer
 }
 
 func New(opts ...Option) (*Controller, error) {
@@ -148,23 +141,8 @@ func New(opts ...Option) (*Controller, error) {
 
 	apiServer := controller.initAPI()
 
-	controller.grpcServer = grpc.NewServer(
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time: 30 * time.Second,
-		}),
-	)
-	rpc.RegisterControllerServer(controller.grpcServer, controller)
-
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Content-Type") == "application/grpc" {
-			controller.grpcServer.ServeHTTP(writer, request)
-		} else {
-			apiServer.ServeHTTP(writer, request)
-		}
-	})
-
 	controller.httpServer = &http.Server{
-		Handler:           h2c.NewHandler(handler, &http2.Server{}),
+		Handler:           h2c.NewHandler(apiServer, &http2.Server{}),
 		ReadHeaderTimeout: 60 * time.Second,
 	}
 

@@ -1,20 +1,6 @@
 syntax = "proto3";
 
-import "google/protobuf/empty.proto";
-
 option go_package = "github.com/cirruslabs/orchard/rpc";
-
-service Controller {
-  // message bus between the controller and a worker
-  rpc Watch(google.protobuf.Empty) returns (stream WatchInstruction);
-
-  // single purpose method when a port forward is requested and running
-  // session information is passed in the requests metadata
-  rpc PortForward(stream PortForwardData) returns (stream PortForwardData);
-
-  // worker calls this method when it has successfully resolved the VM's IP
-  rpc ResolveIP(ResolveIPResult) returns (google.protobuf.Empty);
-}
 
 message WatchInstruction {
   message PortForward {

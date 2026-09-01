@@ -19,18 +19,11 @@ import (
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager/tart"
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
-	"github.com/cirruslabs/orchard/rpc"
 	"github.com/coder/websocket"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -420,35 +413,24 @@ func TestMonitorRPCWatchHealth(t *testing.T) {
 func TestWorkerBacksOffPersistentRPCWatchFailures(t *testing.T) {
 	testCases := []struct {
 		name       string
-		useRPCV2   bool
 		closeAfter bool
 	}{
-		{name: "HTTP rejection", useRPCV2: true},
-		{name: "WebSocket closes immediately", useRPCV2: true, closeAfter: true},
-		{name: "gRPC first receive fails"},
+		{name: "HTTP rejection"},
+		{name: "WebSocket closes immediately", closeAfter: true},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testWorkerBacksOffPersistentRPCWatchFailure(t, testCase.useRPCV2, testCase.closeAfter)
+			testWorkerBacksOffPersistentRPCWatchFailure(t, testCase.closeAfter)
 		})
 	}
 }
 
-func testWorkerBacksOffPersistentRPCWatchFailure(t *testing.T, useRPCV2 bool, closeAfter bool) {
+func testWorkerBacksOffPersistentRPCWatchFailure(t *testing.T, closeAfter bool) {
 	t.Helper()
 
 	watchAttempts := make(chan time.Time, 4)
-	grpcServer := grpc.NewServer()
-	rpc.RegisterControllerServer(grpcServer, &failingRecoveryRPCServer{watchAttempts: watchAttempts})
-	t.Cleanup(grpcServer.Stop)
-
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Content-Type") == "application/grpc" {
-			grpcServer.ServeHTTP(writer, request)
-			return
-		}
-
 		switch {
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/workers":
 			var workerResource v1.Worker
@@ -458,11 +440,9 @@ func testWorkerBacksOffPersistentRPCWatchFailure(t *testing.T, useRPCV2 bool, cl
 			}
 			writeRecoveryTestJSON(t, writer, workerResource)
 		case request.Method == http.MethodGet && request.URL.Path == recoveryTestInfoPath:
-			info := v1.ControllerInfo{}
-			if useRPCV2 {
-				info.Capabilities = v1.ControllerCapabilities{v1.ControllerCapabilityRPCV2}
-			}
-			writeRecoveryTestJSON(t, writer, info)
+			writeRecoveryTestJSON(t, writer, v1.ControllerInfo{
+				Capabilities: v1.ControllerCapabilities{v1.ControllerCapabilityRPCV2},
+			})
 		case request.Method == http.MethodGet && request.URL.Path == recoveryTestWorkerPath:
 			writeRecoveryTestJSON(t, writer, v1.Worker{Meta: v1.Meta{Name: recoveryTestWorkerName}})
 		case request.Method == http.MethodPut && request.URL.Path == recoveryTestWorkerPath:
@@ -491,7 +471,7 @@ func testWorkerBacksOffPersistentRPCWatchFailure(t *testing.T, useRPCV2 bool, cl
 			http.NotFound(writer, request)
 		}
 	})
-	controller := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	controller := httptest.NewServer(handler)
 	t.Cleanup(controller.Close)
 
 	controllerClient, err := client.New(client.WithAddress(controller.URL))
@@ -526,24 +506,6 @@ func testWorkerBacksOffPersistentRPCWatchFailure(t *testing.T, useRPCV2 bool, cl
 
 	cancel()
 	require.ErrorIs(t, <-runResult, context.Canceled)
-}
-
-type failingRecoveryRPCServer struct {
-	rpc.UnimplementedControllerServer
-
-	watchAttempts chan time.Time
-}
-
-func (server *failingRecoveryRPCServer) Watch(
-	_ *emptypb.Empty,
-	_ rpc.Controller_WatchServer,
-) error {
-	select {
-	case server.watchAttempts <- time.Now():
-	default:
-	}
-
-	return status.Error(codes.Unavailable, "RPC watch upstream unavailable")
 }
 
 func TestShouldPreserveRecoveredVM(t *testing.T) {

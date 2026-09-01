@@ -3,6 +3,3 @@ plugins:
   - plugin: go
     out: rpc
     opt: paths=source_relative
-  - plugin: go-grpc
-    out: rpc
-    opt: paths=source_relative
