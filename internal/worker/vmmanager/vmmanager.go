@@ -26,11 +26,12 @@ type VM interface {
 	Delete() error
 }
 
+//nolint:tagliatelle // The Tart and Vetu CLI JSON fields are capitalized.
 type VMInfo struct {
-	Name    string
-	Source  string
-	State   string
-	Running bool
+	Name    string `json:"Name"`
+	Source  string `json:"Source"`
+	State   string `json:"State"`
+	Running bool   `json:"Running"`
 }
 
 type VMManager struct {
