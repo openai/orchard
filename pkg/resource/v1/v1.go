@@ -33,6 +33,7 @@ type VM struct {
 	Headless        bool            `json:"headless,omitempty"`
 	Nested          bool            `json:"nested,omitempty"`
 	NoAudio         bool            `json:"noAudio,omitempty"`
+	NoClipboard     bool            `json:"noClipboard,omitempty"`
 
 	VMSpec
 	VMSpecReadOnly

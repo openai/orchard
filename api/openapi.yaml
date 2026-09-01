@@ -747,6 +747,10 @@ components:
           type: boolean
           description: Whether to disable audio pass-through to the host
           default: false
+        noClipboard:
+          type: boolean
+          description: Whether to disable clipboard sharing between host and guest
+          default: false
         username:
           type: string
           description: SSH username to use when connecting to a VM
