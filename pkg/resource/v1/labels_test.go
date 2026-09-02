@@ -56,20 +56,26 @@ func TestLabelsCopy(t *testing.T) {
 }
 
 func TestLabelsMerged(t *testing.T) {
+	const (
+		originalValue = "original"
+		overriddenKey = "overridden"
+		overrideValue = "override"
+	)
+
 	original := v1.Labels{
-		"preserved":  "original",
-		"overridden": "original",
+		"preserved":   originalValue,
+		overriddenKey: originalValue,
 	}
 	overrides := v1.Labels{
-		"added":      "override",
-		"overridden": "override",
+		"added":       overrideValue,
+		overriddenKey: overrideValue,
 	}
 
 	require.Equal(t, v1.Labels{
-		"added":      "override",
-		"overridden": "override",
-		"preserved":  "original",
+		"added":       overrideValue,
+		overriddenKey: overrideValue,
+		"preserved":   originalValue,
 	}, original.Merged(overrides))
-	require.Equal(t, "original", original["overridden"])
-	require.Equal(t, "override", overrides["overridden"])
+	require.Equal(t, originalValue, original[overriddenKey])
+	require.Equal(t, overrideValue, overrides[overriddenKey])
 }
