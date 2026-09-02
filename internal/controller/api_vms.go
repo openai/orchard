@@ -43,6 +43,9 @@ func (controller *Controller) createVM(ctx *gin.Context) responder.Responder {
 	if vm.Image == "" {
 		return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("VM image is empty"))
 	}
+	if err := v1.ValidateEndpoints(vm.Endpoints); err != nil {
+		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid endpoints: %v", err))
+	}
 
 	// Provide defaults
 	vm.Status = v1.VMStatusPending
@@ -56,6 +59,7 @@ func (controller *Controller) createVM(ctx *gin.Context) responder.Responder {
 	vm.TartName = vm.LocalName
 	vm.Generation = 0
 	vm.ObservedGeneration = 0
+	vm.ObservedEndpoints = nil
 	vm.Conditions = []v1.Condition{
 		{
 			Type:  v1.ConditionTypeScheduled,
@@ -158,6 +162,9 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 	if err := ctx.ShouldBindJSON(&userVM); err != nil {
 		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid JSON was provided"))
 	}
+	if err := v1.ValidateEndpoints(userVM.Endpoints); err != nil {
+		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid endpoints: %v", err))
+	}
 
 	if responder := controller.validateHostDirs(userVM.HostDirs); responder != nil {
 		return responder
@@ -221,7 +228,7 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 				"transition: only suspendable VMs can be suspended"))
 		}
 
-		if dbVM.SemanticallyEqual(userVM.VMSpec) {
+		if v1.SemanticallyEqual(dbVM.VMSpec, userVM.VMSpec) {
 			// Nothing was changed
 			return responder.JSON(http.StatusOK, dbVM)
 		}

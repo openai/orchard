@@ -14,6 +14,7 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/cirruslabs/orchard/internal/dialer"
+	"github.com/cirruslabs/orchard/internal/worker/endpoint"
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	mapset "github.com/deckarep/golang-set/v2"
@@ -42,6 +43,7 @@ type VM struct {
 
 	statusMessage atomic.Pointer[string]
 	err           atomic.Pointer[error]
+	endpoints     *endpoint.Set
 
 	logger *zap.SugaredLogger
 }
@@ -49,8 +51,13 @@ type VM struct {
 func NewVM(logger *zap.SugaredLogger) *VM {
 	return &VM{
 		conditions: mapset.NewSet(v1.ConditionTypeCloning),
+		endpoints:  endpoint.NewSet(logger),
 		logger:     logger,
 	}
+}
+
+func (vm *VM) EndpointSet() *endpoint.Set {
+	return vm.endpoints
 }
 
 func (vm *VM) SetStarted(val bool) {

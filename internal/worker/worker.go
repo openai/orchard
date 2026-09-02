@@ -14,6 +14,7 @@ import (
 	"github.com/cirruslabs/orchard/internal/dialer"
 	"github.com/cirruslabs/orchard/internal/opentelemetry"
 	"github.com/cirruslabs/orchard/internal/worker/dhcpleasetime"
+	"github.com/cirruslabs/orchard/internal/worker/endpoint"
 	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
 	"github.com/cirruslabs/orchard/internal/worker/platform"
 	"github.com/cirruslabs/orchard/internal/worker/runtime"
@@ -447,6 +448,8 @@ func (worker *Worker) registerWorker(ctx context.Context) error {
 		MachineID:     platformUUID,
 		DefaultCPU:    worker.defaultCPU,
 		DefaultMemory: worker.defaultMemory,
+		Capabilities: lo.Ternary(worker.runtime.ID() == v1.RuntimeTart || worker.runtime.Synthetic(),
+			v1.WorkerCapabilities{v1.WorkerCapabilityVMEndpoints}, nil),
 	})
 	if err != nil {
 		return err
@@ -603,7 +606,7 @@ func (worker *Worker) syncVMs(
 					currentVMResource.NetSoftnetBlock = vmResource.NetSoftnetBlock
 
 					// Advance the generation only if no other spec changes remain
-					if currentVMResource.SemanticallyEqual(vmResource.VMSpec) {
+					if v1.SemanticallyEqual(currentVMResource.VMSpec, vmResource.VMSpec) {
 						currentVMResource = *vmResource
 					}
 
@@ -642,6 +645,7 @@ func (worker *Worker) syncVMs(
 
 			vmResource.Status = v1.VMStatusFailed
 			vmResource.StatusMessage = statusMessage
+			vmResource.ObservedEndpoints = nil
 			if err := updateVM(ctx, *vmResource); err != nil {
 				return err
 			}
@@ -665,9 +669,44 @@ func (worker *Worker) monitorRunningVM(
 	vm vmmanager.VM,
 	updateVM func(context.Context, v1.VM) error,
 ) error {
+	currentVMResource := vm.Resource()
+
+	// Tracks whether any specification changes were applied without restarting the VM
+	appliedInPlace := false
+
+	// Endpoint specification changes do not require restarting the VM;
+	// reconciliation happens separately below
+	endpointsChanged := !v1.SemanticallyEqual(
+		currentVMResource.Endpoints,
+		vmResource.Endpoints,
+	)
+
+	if vmResource.PowerState == v1.PowerStateRunning &&
+		!v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeStopping) &&
+		!v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeSuspending) &&
+		v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeRunning) &&
+		endpointsChanged {
+		currentVMResource.Endpoints = vmResource.Endpoints
+		appliedInPlace = true
+	}
+
+	// Advance the generation only if no other specification changes remain
+	if appliedInPlace {
+		if v1.SemanticallyEqual(currentVMResource.VMSpec, vmResource.VMSpec) {
+			currentVMResource = *vmResource
+		}
+
+		vm.SetResource(currentVMResource)
+	}
+
 	worker.reconcileRunningVM(vmResource, vm) //nolint:contextcheck // Event streams outlive sync sessions.
 
 	var updateNeeded bool
+
+	if (worker.runtime.ID() == v1.RuntimeTart || worker.runtime.Synthetic()) &&
+		worker.reconcileEndpoints(vmResource, vm) {
+		updateNeeded = true
+	}
 
 	if vmResource.StatusMessage != vm.StatusMessage() {
 		vmResource.StatusMessage = vm.StatusMessage()
@@ -693,6 +732,34 @@ func (worker *Worker) monitorRunningVM(
 	}
 
 	return nil
+}
+
+func (worker *Worker) reconcileEndpoints(
+	vmResource *v1.VM,
+	vm vmmanager.VM,
+) bool {
+	// Expose endpoints only when the requested VM generation is running
+	endpointsShouldRun := vmResource.PowerState == v1.PowerStateRunning &&
+		v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeRunning) &&
+		vmResource.Generation == vm.Resource().Generation
+
+	desired := vmResource.Endpoints
+	if !endpointsShouldRun {
+		desired = nil
+	}
+
+	observed := vm.EndpointSet().Reconcile(
+		desired,
+		endpoint.NewVMTargetBinder(vm.IP, worker.dialer),
+	)
+
+	if slices.Equal(vmResource.ObservedEndpoints, observed) {
+		return false
+	}
+
+	vmResource.ObservedEndpoints = observed
+
+	return true
 }
 
 func (worker *Worker) reconcileRunningVM(vmResource *v1.VM, vm vmmanager.VM) {
