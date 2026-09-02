@@ -692,6 +692,8 @@ components:
             TCP services inside the VM to expose through TCP ports on the Orchard
             Worker. The worker ports assigned to the endpoints are reported in
             `observedEndpoints`.
+            Endpoint ports listen on all worker network interfaces. Use firewall
+            rules to restrict access.
             VMs with endpoints are scheduled only on workers that support endpoint
             forwarding. Adding endpoints to a VM already assigned to an unsupported
             worker succeeds, but those endpoints are reported in the `error` state.
