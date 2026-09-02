@@ -663,6 +663,7 @@ func (worker *Worker) syncVMs(
 	return nil
 }
 
+//nolint:staticcheck // Preserve the original host-process specification comparison.
 func (worker *Worker) monitorRunningVM(
 	ctx context.Context,
 	vmResource *v1.VM,
@@ -673,6 +674,26 @@ func (worker *Worker) monitorRunningVM(
 
 	// Tracks whether any specification changes were applied without restarting the VM
 	appliedInPlace := false
+
+	// When set, retries during the next sync instead of restarting the VM
+	deferSpecReconciliation := false
+
+	// Try to apply the host process updates in-place or recover processes that exited unexpectedly
+	hostProcessesChanged := !currentVMResource.VMSpec.HostProcessesEqual(vmResource.VMSpec)
+	hostProcessesNeedRestart := currentVMResource.Generation == vmResource.Generation &&
+		v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeRunning) &&
+		!vm.HostProcessSet().Ready()
+
+	if vmResource.PowerState == v1.PowerStateRunning && (hostProcessesChanged || hostProcessesNeedRestart) {
+		if err := vm.HostProcessSet().Replace(ctx, vmResource.HostProcesses); err != nil {
+			worker.logger.Warnf("failed to update host processes for VM %q: %v",
+				vmResource.Name, err)
+			deferSpecReconciliation = true
+		} else {
+			currentVMResource.HostProcesses = vmResource.HostProcesses
+			appliedInPlace = true
+		}
+	}
 
 	// Endpoint specification changes do not require restarting the VM;
 	// reconciliation happens separately below
@@ -699,7 +720,10 @@ func (worker *Worker) monitorRunningVM(
 		vm.SetResource(currentVMResource)
 	}
 
-	worker.reconcileRunningVM(vmResource, vm) //nolint:contextcheck // Event streams outlive sync sessions.
+	// Reconcile specification changes that could not be applied in-place
+	if !deferSpecReconciliation {
+		worker.reconcileRunningVM(vmResource, vm) //nolint:contextcheck // Event streams outlive sync sessions.
+	}
 
 	var updateNeeded bool
 

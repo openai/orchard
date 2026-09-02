@@ -66,8 +66,9 @@ func NewVM(
 		"vm_restart_count", vmResource.RestartCount,
 	)
 
+	onDiskName := ondiskname.NewFromResource(vmResource)
 	vm := &VM{
-		onDiskName: ondiskname.NewFromResource(vmResource),
+		onDiskName: onDiskName,
 		resource:   vmResource,
 		logger:     logger,
 
@@ -79,7 +80,7 @@ func NewVM(
 		dialer:               dialer,
 		softnetPolicyUpdates: softnetPolicyUpdates,
 
-		VM: base.NewVM(logger),
+		VM: base.NewVM(vmResource, onDiskName, logger),
 	}
 
 	vm.wg.Add(1)
@@ -304,6 +305,12 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 	defer vm.ConditionsSet().RemoveAll(v1.ConditionTypeRunning, v1.ConditionTypeSuspending)
 
 	resource := vm.Resource()
+	if err := vm.HostProcessSet().Start(ctx, resource.HostProcesses); err != nil {
+		vm.SetErr(fmt.Errorf("failed to start host processes: %w", err))
+
+		return
+	}
+	defer vm.HostProcessSet().Stop()
 
 	vm.EndpointSet().Start()
 	defer vm.EndpointSet().Stop()
@@ -426,6 +433,8 @@ func (vm *VM) IP(ctx context.Context) (string, error) {
 }
 
 func (vm *VM) Suspend() <-chan error {
+	vm.HostProcessSet().Stop()
+
 	vm.EndpointSet().Stop()
 	errCh := make(chan error, 1)
 
@@ -459,6 +468,8 @@ func (vm *VM) Suspend() <-chan error {
 }
 
 func (vm *VM) Stop() <-chan error {
+	vm.HostProcessSet().Stop()
+
 	vm.EndpointSet().Stop()
 	vm.stopMtx.Lock()
 	defer vm.stopMtx.Unlock()

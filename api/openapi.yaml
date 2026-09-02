@@ -390,7 +390,13 @@ paths:
             type: integer
             minimum: 1
             maximum: 65535
-          required: true
+          required: false
+        - in: query
+          name: hostProcess
+          description: Name of a host process declared in the VM's `hostProcesses` field; mutually exclusive with `port`.
+          schema:
+            type: string
+          required: false
         - in: query
           name: wait
           description: Duration in seconds to wait for the VM to transition into "running" state if not already running.
@@ -414,9 +420,9 @@ paths:
             type: string
       responses:
         '400':
-          description: Invalid port specified
+          description: Invalid or ambiguous port-forward target specified
         '404':
-          description: VM resource with the given name doesn't exist
+          description: VM or requested host process doesn't exist
         '503':
           description: Failed to establish connection with the worker responsible for the specified VM
   /vms/{name}/exec:
@@ -832,6 +838,14 @@ components:
             - path: /path/on/host/to/sources
               ro: true
             - path: /path/on/host/to/builds
+        hostProcesses:
+          type: array
+          description: |
+            Generic long-running processes run by the Orchard worker alongside this VM.
+            Their lifecycle is tied to the VM. Updating this field restarts the associated
+            host processes without restarting the VM.
+          items:
+            $ref: '#/components/schemas/HostProcess'
         powerState:
           type: string
           description: |
@@ -958,6 +972,40 @@ components:
         message:
           type: string
           description: Human-readable detail, primarily populated when `state` is `error`.
+    HostProcess:
+      title: VM-associated host process
+      type: object
+      description: A long-running process run by the Orchard worker alongside a VM.
+      required:
+        - name
+        - program
+      properties:
+        name:
+          type: string
+          description: Process name, unique within the VM.
+        program:
+          type: string
+          description: Executable path or name resolved using the worker's `PATH`.
+        args:
+          type: array
+          description: |
+            Argument vector passed directly to the configured program without shell interpretation.
+
+            The worker only expands these placeholders in each argument:
+
+            - `${ORCHARD_WORKER_NAME}`: name of this Orchard Worker
+            - `${ORCHARD_VM_NAME}`: name of the associated VM
+            - `${ORCHARD_VM_CONTROL_SOCKET}`: path to the VM's control socket
+            - `${ORCHARD_PROCESS_SOCKET}`: Unix socket path that the process must listen on to receive incoming port-forward connections
+          items:
+            type: string
+        env:
+          type: object
+          description: |
+            Additional environment variables passed to the process. `PATH` and the worker-provided
+            `ORCHARD_*` variables take precedence over values supplied here.
+          additionalProperties:
+            type: string
     VMState:
       title: Virtual Machine State
       type: object

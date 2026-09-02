@@ -22,3 +22,12 @@ func TestSemanticallyEqualEquatesEmptySlices(t *testing.T) {
 	}
 	require.True(t, v1.SemanticallyEqual(nilSlicesSpec, emptySlicesSpec))
 }
+
+func TestVMSpecHostProcessesEqualEquatesEmptySlices(t *testing.T) {
+	nilHostProcessesSpec := v1.VMSpec{}
+	emptyHostProcessesSpec := v1.VMSpec{
+		HostProcesses: []v1.HostProcess{},
+	}
+
+	require.True(t, nilHostProcessesSpec.HostProcessesEqual(emptyHostProcessesSpec))
+}

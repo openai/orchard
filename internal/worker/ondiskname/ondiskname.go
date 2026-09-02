@@ -3,9 +3,12 @@ package ondiskname
 import (
 	"errors"
 	"fmt"
-	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 )
 
 var (
@@ -80,4 +83,20 @@ func Parse(s string) (OnDiskName, error) {
 
 func (odn OnDiskName) String() string {
 	return fmt.Sprintf("%s-%s-%s-%d", prefix, odn.Name, odn.UID, odn.RestartCount)
+}
+
+func (odn OnDiskName) ControlSocketPath() (string, error) {
+	// Try user-overridden TART_HOME first
+	tartHome := os.Getenv("TART_HOME")
+	if tartHome == "" {
+		// Fall back to default TART_HOME
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to determine user home directory: %w", err)
+		}
+
+		tartHome = filepath.Join(homeDir, ".tart")
+	}
+
+	return filepath.Join(tartHome, "vms", odn.String(), "control.sock"), nil
 }

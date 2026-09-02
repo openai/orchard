@@ -98,7 +98,7 @@ func newVMForDelete(t *testing.T, script string) (*VM, string) {
 		logger:     logger,
 		ctx:        ctx,
 		cancel:     cancel,
-		VM:         base.NewVM(logger),
+		VM:         base.NewVM(v1.VM{}, ondiskname.OnDiskName{}, logger),
 	}
 	vm.ConditionsSet().Remove(v1.ConditionTypeCloning)
 

@@ -71,10 +71,26 @@ func (worker *Worker) handlePortForwardV2(ctx context.Context, portForward *v1.P
 	}
 }
 
+//nolint:err113,perfsprint // Preserve the original host-process forwarding errors.
 func (worker *Worker) handlePortForwardV2Inner(
 	ctx context.Context,
 	portForward *v1.PortForwardAction,
 ) (net.Conn, error) {
+	if target := portForward.Target; target != nil {
+		// Sanity check
+		if portForward.VMUID != "" || portForward.Port != 0 {
+			return nil, fmt.Errorf("target and legacy fields are mutually exclusive")
+		}
+
+		// Retrieve the typed host process target, it's the only possible target right now
+		if target.HostProcess == nil || target.HostProcess.VMUID == "" || target.HostProcess.Name == "" {
+			return nil, fmt.Errorf("invalid or unsupported target")
+		}
+
+		// Dial host process
+		return worker.dialHostProcess(ctx, target.HostProcess.VMUID, target.HostProcess.Name)
+	}
+
 	var host string
 	var err error
 
@@ -87,7 +103,7 @@ func (worker *Worker) handlePortForwardV2Inner(
 			return item.Resource().UID == portForward.VMUID
 		})
 		if !ok {
-			return nil, fmt.Errorf("failed to get the VM: %v", err)
+			return nil, fmt.Errorf("failed to get VM with UID %q", portForward.VMUID)
 		}
 
 		// Obtain VM's IP address
@@ -158,4 +174,29 @@ func (worker *Worker) handleGetIPV2Inner(
 	}
 
 	return ip, nil
+}
+
+//nolint:err113,ireturn // Preserve the original VM lookup helper required by host processes.
+func (worker *Worker) findVMByUID(uid string) (vmmanager.VM, error) {
+	vm, ok := lo.Find(worker.vmm.List(), func(item vmmanager.VM) bool {
+		return item.Resource().UID == uid
+	})
+	if !ok {
+		return nil, fmt.Errorf("VM with UID %q not found", uid)
+	}
+
+	if !vm.Started() {
+		return nil, fmt.Errorf("VM with UID %q is not running", uid)
+	}
+
+	return vm, nil
+}
+
+func (worker *Worker) dialHostProcess(ctx context.Context, vmUID string, name string) (net.Conn, error) {
+	vm, err := worker.findVMByUID(vmUID)
+	if err != nil {
+		return nil, err
+	}
+
+	return vm.HostProcessSet().Dial(ctx, name)
 }

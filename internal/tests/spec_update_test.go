@@ -351,7 +351,14 @@ func TestSpecUpdatePowerStateSuspend(t *testing.T) {
 	_, err = tartRunProcessCmdline(tartVMName)
 	require.NoError(t, err)
 
-	// Update the VM's specification and change it's power state
+	// Include a host process that would fail to start to ensure that host-process
+	// reconciliation cannot block the terminal power-state transition.
+	vm.HostProcesses = []v1.HostProcess{{
+		Name:    "unavailable",
+		Program: "/does/not/exist",
+	}}
+
+	// Update the VM's specification and change its power state
 	vm.PowerState = v1.PowerStateSuspended
 
 	vm, err = devClient.VMs().Update(t.Context(), *vm)
@@ -426,7 +433,14 @@ func TestSpecUpdatePowerStateStopped(t *testing.T) {
 	_, err = tartRunProcessCmdline(tartVMName)
 	require.NoError(t, err)
 
-	// Update the VM's specification and change it's power state
+	// Include a host process that would fail to start to ensure that host-process
+	// reconciliation cannot block the terminal power-state transition.
+	vm.HostProcesses = []v1.HostProcess{{
+		Name:    "unavailable",
+		Program: "/does/not/exist",
+	}}
+
+	// Update the VM's specification and change its power state
 	vm.PowerState = v1.PowerStateStopped
 
 	vm, err = devClient.VMs().Update(t.Context(), *vm)

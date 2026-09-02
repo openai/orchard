@@ -10,11 +10,13 @@ var ErrUnsupportedServiceAccountRole = errors.New("unsupported service account r
 type ServiceAccountRole string
 
 const (
-	ServiceAccountRoleComputeRead    ServiceAccountRole = "compute:read"
-	ServiceAccountRoleComputeWrite   ServiceAccountRole = "compute:write"
-	ServiceAccountRoleComputeConnect ServiceAccountRole = "compute:connect"
-	ServiceAccountRoleAdminRead      ServiceAccountRole = "admin:read"
-	ServiceAccountRoleAdminWrite     ServiceAccountRole = "admin:write"
+	ServiceAccountRoleComputeRead        ServiceAccountRole = "compute:read"
+	ServiceAccountRoleComputeWrite       ServiceAccountRole = "compute:write"
+	ServiceAccountRoleComputeConnect     ServiceAccountRole = "compute:connect"
+	ServiceAccountRoleHostProcessWrite   ServiceAccountRole = "host-process:write"
+	ServiceAccountRoleHostProcessConnect ServiceAccountRole = "host-process:connect"
+	ServiceAccountRoleAdminRead          ServiceAccountRole = "admin:read"
+	ServiceAccountRoleAdminWrite         ServiceAccountRole = "admin:write"
 )
 
 func NewServiceAccountRole(name string) (ServiceAccountRole, error) {
@@ -25,6 +27,10 @@ func NewServiceAccountRole(name string) (ServiceAccountRole, error) {
 		return ServiceAccountRoleComputeWrite, nil
 	case string(ServiceAccountRoleComputeConnect):
 		return ServiceAccountRoleComputeConnect, nil
+	case string(ServiceAccountRoleHostProcessWrite):
+		return ServiceAccountRoleHostProcessWrite, nil
+	case string(ServiceAccountRoleHostProcessConnect):
+		return ServiceAccountRoleHostProcessConnect, nil
 	case string(ServiceAccountRoleAdminRead):
 		return ServiceAccountRoleAdminRead, nil
 	case string(ServiceAccountRoleAdminWrite):
@@ -39,6 +45,8 @@ func AllServiceAccountRoles() []ServiceAccountRole {
 		ServiceAccountRoleComputeRead,
 		ServiceAccountRoleComputeWrite,
 		ServiceAccountRoleComputeConnect,
+		ServiceAccountRoleHostProcessWrite,
+		ServiceAccountRoleHostProcessConnect,
 		ServiceAccountRoleAdminRead,
 		ServiceAccountRoleAdminWrite,
 	}
