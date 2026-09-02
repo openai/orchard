@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
-	"github.com/cirruslabs/orchard/internal/controller/store/badger"
 	"github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -12,9 +11,16 @@ import (
 
 func TestListEventsPage(t *testing.T) {
 	logger := zap.NewNop().Sugar()
-	store, err := badger.NewBadgerStore(t.TempDir(), true, logger)
-	require.NoError(t, err)
 
+	for _, storeImpl := range testStores(logger) {
+		t.Run(storeImpl.Name, func(t *testing.T) {
+			store := storeImpl.Init(t)
+			testListEventsPage(t, store)
+		})
+	}
+}
+
+func testListEventsPage(t *testing.T, store storepkg.Store) {
 	events := []v1.Event{
 		{Kind: v1.EventKindLogLine, Timestamp: 1, Payload: "one"},
 		{Kind: v1.EventKindLogLine, Timestamp: 2, Payload: "two"},
@@ -22,7 +28,7 @@ func TestListEventsPage(t *testing.T) {
 		{Kind: v1.EventKindLogLine, Timestamp: 4, Payload: "four"},
 	}
 
-	err = store.Update(func(txn storepkg.Transaction) error {
+	err := store.Update(func(txn storepkg.Transaction) error {
 		return txn.AppendEvents(events, "vms", "vm-uid")
 	})
 	require.NoError(t, err)
@@ -74,4 +80,44 @@ func TestListEventsPage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []v1.Event{events[1], events[0]}, descPage2.Items)
 	require.Empty(t, descPage2.NextCursor)
+}
+
+func TestDeleteManyEvents(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+
+	for _, storeImpl := range testStores(logger) {
+		t.Run(storeImpl.Name, func(t *testing.T) {
+			store := storeImpl.Init(t)
+			testDeleteManyEvents(t, store)
+		})
+	}
+}
+
+func testDeleteManyEvents(t *testing.T, store storepkg.Store) {
+	events := make([]v1.Event, 200)
+	for i := range events {
+		events[i] = v1.Event{Kind: v1.EventKindLogLine, Timestamp: int64(i), Payload: "log line"}
+	}
+
+	for _, eventBatch := range [][]v1.Event{events[:100], events[100:]} {
+		err := store.Update(func(txn storepkg.Transaction) error {
+			return txn.AppendEvents(eventBatch, "vms", "vm-with-many-events")
+		})
+		require.NoError(t, err)
+	}
+
+	err := store.Update(func(txn storepkg.Transaction) error {
+		return txn.DeleteEvents("vms", "vm-with-many-events")
+	})
+	require.NoError(t, err)
+
+	var remaining []v1.Event
+	err = store.View(func(txn storepkg.Transaction) error {
+		var err error
+		remaining, err = txn.ListEvents("vms", "vm-with-many-events")
+
+		return err
+	})
+	require.NoError(t, err)
+	require.Empty(t, remaining)
 }
