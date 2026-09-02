@@ -12,6 +12,7 @@ import (
 type VM interface {
 	Resource() v1.VM
 	SetResource(vmResource v1.VM)
+	UpdateSoftnetPolicy(ctx context.Context, allow []string, block []string) error
 	OnDiskName() ondiskname.OnDiskName
 	ImageFQN() *string
 	Status() v1.VMStatus

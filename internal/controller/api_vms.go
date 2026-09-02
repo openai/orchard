@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -16,8 +17,8 @@ import (
 	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
 	"github.com/cirruslabs/orchard/pkg/client"
 	"github.com/cirruslabs/orchard/pkg/resource/v1"
+	"github.com/cirruslabs/orchard/rpc"
 	"github.com/gin-gonic/gin"
-	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -163,8 +164,12 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 	}
 
 	name := ctx.Param("name")
+	var affectedWorker string
 
-	return controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
+	response := controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
+		// Re-initialize to guard against potential transaction retry
+		affectedWorker = ""
+
 		dbVM, err := txn.GetVM(name)
 		if err != nil {
 			return responder.Error(err)
@@ -216,7 +221,7 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 				"transition: only suspendable VMs can be suspended"))
 		}
 
-		if cmp.Equal(dbVM.VMSpec, userVM.VMSpec) {
+		if dbVM.SemanticallyEqual(userVM.VMSpec) {
 			// Nothing was changed
 			return responder.JSON(http.StatusOK, dbVM)
 		}
@@ -231,8 +236,24 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 			return responder.Code(http.StatusInternalServerError)
 		}
 
+		affectedWorker = dbVM.Worker
+
 		return responder.JSON(http.StatusOK, dbVM)
 	})
+
+	if affectedWorker != "" {
+		notifyContext, cancel := context.WithTimeout(ctx.Request.Context(), time.Second)
+		defer cancel()
+
+		if err := controller.workerNotifier.Notify(notifyContext, affectedWorker, &rpc.WatchInstruction{
+			Action: &rpc.WatchInstruction_SyncVmsAction{},
+		}); err != nil {
+			controller.logger.Warnf("failed to reactively sync updated VM %s on worker %s: %v",
+				name, affectedWorker, err)
+		}
+	}
+
+	return response
 }
 
 func (controller *Controller) updateVMState(ctx *gin.Context) responder.Responder {

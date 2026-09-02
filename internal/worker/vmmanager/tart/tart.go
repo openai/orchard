@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -24,9 +25,10 @@ import (
 const tartDeleteExitCodeNotFound = 2
 
 type VM struct {
-	onDiskName ondiskname.OnDiskName
-	resource   v1.VM
-	logger     *zap.SugaredLogger
+	onDiskName  ondiskname.OnDiskName
+	resource    v1.VM
+	resourceMtx sync.RWMutex
+	logger      *zap.SugaredLogger
 
 	// Image FQN feature, see https://github.com/cirruslabs/orchard/issues/164
 	imageFQN atomic.Pointer[string]
@@ -41,6 +43,10 @@ type VM struct {
 
 	dialer dialer.Dialer
 
+	softnetPolicyUpdates bool
+	softnetControl       *softnetPolicyControl
+	softnetControlMtx    sync.Mutex
+
 	*base.VM
 }
 
@@ -49,6 +55,7 @@ func NewVM(
 	eventStreamer *client.EventStreamer,
 	vmPullTimeHistogram metric.Float64Histogram,
 	dialer dialer.Dialer,
+	softnetPolicyUpdates bool,
 	logger *zap.SugaredLogger,
 ) *VM {
 	vmContext, vmContextCancel := context.WithCancel(context.Background())
@@ -67,7 +74,8 @@ func NewVM(
 
 		wg: &sync.WaitGroup{},
 
-		dialer: dialer,
+		dialer:               dialer,
+		softnetPolicyUpdates: softnetPolicyUpdates,
 
 		VM: base.NewVM(logger),
 	}
@@ -123,10 +131,16 @@ func NewVM(
 }
 
 func (vm *VM) Resource() v1.VM {
+	vm.resourceMtx.RLock()
+	defer vm.resourceMtx.RUnlock()
+
 	return vm.resource
 }
 
 func (vm *VM) SetResource(vmResource v1.VM) {
+	vm.resourceMtx.Lock()
+	defer vm.resourceMtx.Unlock()
+
 	vm.resource = vmResource
 	vm.resource.ObservedGeneration = vmResource.Generation
 }
@@ -282,62 +296,80 @@ func (vm *VM) cloneAndConfigure(ctx context.Context) error {
 	return nil
 }
 
+//nolint:contextcheck,perfsprint,staticcheck // preserve the original launch expressions and context ownership
 func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 	// Stop owns Stopping until both its command and this goroutine finish.
 	defer vm.ConditionsSet().RemoveAll(v1.ConditionTypeRunning, v1.ConditionTypeSuspending)
 
+	resource := vm.Resource()
+
 	// Launch the startup script goroutine as close as possible
 	// to the VM startup (below) to avoid "tart ip" timing out
-	if vm.resource.StartupScript != nil {
+	if resource.StartupScript != nil {
 		vm.SetStatusMessage("VM started, running startup script...")
 
-		go vm.RunScript(vm.ctx, vm.resource.Username, vm.resource.Password, vm.resource.StartupScript,
+		go vm.RunScript(vm.ctx, resource.Username, resource.Password, resource.StartupScript,
 			eventStreamer, vm.dialer, vm.IP)
 	} else {
 		vm.SetStatusMessage("VM started")
 	}
 
+	var extraFiles []*os.File
 	var runArgs = []string{"run"}
 
-	if vm.resource.NetSoftnetDeprecated || vm.resource.NetSoftnet {
+	if resource.VMSpec.SoftnetEnabled() {
 		runArgs = append(runArgs, "--net-softnet")
+
+		if vm.softnetPolicyUpdates {
+			ourFile, tartFile, err := newSoftnetPolicyControl()
+			if err != nil {
+				vm.SetErr(fmt.Errorf("failed to create Softnet policy control channel: %w", err))
+				return
+			}
+
+			vm.installSoftnetPolicyControl(ourFile)
+			defer vm.removeSoftnetPolicyControl(ourFile)
+
+			extraFiles = append(extraFiles, tartFile)
+			runArgs = append(runArgs, fmt.Sprintf("--net-softnet-control-fd=%d", softnetControlFD))
+		}
 	}
-	if len(vm.resource.NetSoftnetAllow) != 0 {
-		runArgs = append(runArgs, "--net-softnet-allow", strings.Join(vm.resource.NetSoftnetAllow, ","))
+	if len(resource.NetSoftnetAllow) != 0 {
+		runArgs = append(runArgs, "--net-softnet-allow", strings.Join(resource.NetSoftnetAllow, ","))
 	}
-	if len(vm.resource.NetSoftnetBlock) != 0 {
-		runArgs = append(runArgs, "--net-softnet-block", strings.Join(vm.resource.NetSoftnetBlock, ","))
+	if len(resource.NetSoftnetBlock) != 0 {
+		runArgs = append(runArgs, "--net-softnet-block", strings.Join(resource.NetSoftnetBlock, ","))
 	}
-	if vm.resource.NetBridged != "" {
-		runArgs = append(runArgs, fmt.Sprintf("--net-bridged=%s", vm.resource.NetBridged))
+	if resource.NetBridged != "" {
+		runArgs = append(runArgs, fmt.Sprintf("--net-bridged=%s", resource.NetBridged))
 	}
 
-	if vm.resource.Headless {
+	if resource.Headless {
 		runArgs = append(runArgs, "--no-graphics")
 	}
 
-	if vm.resource.Nested {
+	if resource.Nested {
 		runArgs = append(runArgs, "--nested")
 	}
 
-	if vm.resource.NoAudio {
+	if resource.NoAudio {
 		runArgs = append(runArgs, "--no-audio")
 	}
 
-	if vm.resource.NoClipboard {
+	if resource.NoClipboard {
 		runArgs = append(runArgs, "--no-clipboard")
 	}
 
-	if vm.resource.Suspendable {
+	if resource.Suspendable {
 		runArgs = append(runArgs, "--suspendable")
 	}
 
-	for _, hostDir := range vm.resource.HostDirs {
+	for _, hostDir := range resource.HostDirs {
 		runArgs = append(runArgs, fmt.Sprintf("--dir=%s", hostDir.String()))
 	}
 
 	runArgs = append(runArgs, vm.id())
-	_, _, err := Tart(ctx, vm.logger, runArgs...)
+	_, _, err := TartWithExtraFiles(ctx, vm.logger, extraFiles, runArgs...)
 	if err != nil {
 		select {
 		case <-vm.ctx.Done():
@@ -360,9 +392,11 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 }
 
 func (vm *VM) IP(ctx context.Context) (string, error) {
+	resource := vm.Resource()
+
 	// Bridged networking is problematic, so try with
 	// the agent resolver first using a small timeout
-	if vm.resource.NetBridged != "" {
+	if resource.NetBridged != "" {
 		stdout, _, err := Tart(ctx, vm.logger, "ip", "--wait", "5",
 			"--resolver", "agent", vm.id())
 		if err == nil {
@@ -372,7 +406,7 @@ func (vm *VM) IP(ctx context.Context) (string, error) {
 
 	args := []string{"ip", "--wait", "60"}
 
-	if vm.resource.NetBridged != "" {
+	if resource.NetBridged != "" {
 		args = append(args, "--resolver", "arp")
 	}
 

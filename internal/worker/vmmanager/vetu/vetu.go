@@ -2,6 +2,7 @@ package vetu
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -125,6 +126,10 @@ func (vm *VM) Resource() v1.VM {
 func (vm *VM) SetResource(vmResource v1.VM) {
 	vm.resource = vmResource
 	vm.resource.ObservedGeneration = vmResource.Generation
+}
+
+func (vm *VM) UpdateSoftnetPolicy(context.Context, []string, []string) error {
+	return errors.ErrUnsupported
 }
 
 func (vm *VM) OnDiskName() ondiskname.OnDiskName {

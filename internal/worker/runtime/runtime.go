@@ -19,6 +19,7 @@ type Runtime interface {
 		eventStreamer *client.EventStreamer,
 		vmPullTimeHistogram metric.Float64Histogram,
 		dialer dialer.Dialer,
+		softnetPolicyUpdates bool,
 		logger *zap.SugaredLogger,
 	) vmmanager.VM
 	ListVMs(ctx context.Context, logger *zap.SugaredLogger) ([]vmmanager.VMInfo, error)
