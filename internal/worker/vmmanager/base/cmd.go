@@ -30,8 +30,8 @@ func Cmd(
 	err := cmd.Run()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return "", "", fmt.Errorf("%s command not found in PATH, make sure %s is installed",
-				commandName, strings.ToTitle(commandName))
+			return "", "", fmt.Errorf("%s command not found in PATH, make sure %s is installed: %w",
+				commandName, strings.ToTitle(commandName), err)
 		}
 
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -46,9 +46,9 @@ func Cmd(
 				)
 			}
 
-			// Command failed, redefine the error to be the command-specific output
-			err = fmt.Errorf("%s command failed: %q", commandName,
-				firstNonEmptyLine(stderr.String(), stdout.String()))
+			// Preserve the exit status while adding the command-specific output.
+			err = fmt.Errorf("%s command failed: %q: %w", commandName,
+				firstNonEmptyLine(stderr.String(), stdout.String()), exitErr)
 		}
 	}
 
