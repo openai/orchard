@@ -142,6 +142,12 @@ func New(client *client.Client, opts ...Option) (*Worker, error) {
 
 	worker.resources = defaultResources.Merged(worker.resources)
 
+	defaultLabels := v1.Labels{
+		v1.LabelWorkerName: worker.name,
+	}
+
+	worker.labels = defaultLabels.Merged(worker.labels)
+
 	// Worker, VMs and images-related metrics
 	worker.vmPullTimeHistogram, err = opentelemetry.DefaultMeter.Float64Histogram(
 		"org.cirruslabs.orchard.worker.vm.pull_time",

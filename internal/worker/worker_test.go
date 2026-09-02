@@ -237,6 +237,45 @@ func newWorkerWithFakeTart(
 	}
 }
 
+func TestWorkerNameLabel(t *testing.T) {
+	tests := []struct {
+		name               string
+		configuredLabels   v1.Labels
+		expectedWorkerName string
+	}{
+		{
+			name:               "automatic worker name",
+			configuredLabels:   v1.Labels{"custom-label": "custom-value"},
+			expectedWorkerName: recoveryTestWorkerName,
+		},
+		{
+			name: "explicit override",
+			configuredLabels: v1.Labels{
+				"custom-label":     "custom-value",
+				v1.LabelWorkerName: "custom-worker-name",
+			},
+			expectedWorkerName: "custom-worker-name",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			worker, err := New(
+				nil,
+				WithName(recoveryTestWorkerName),
+				WithLabels(test.configuredLabels),
+				WithSynthetic(),
+				WithLogger(zap.NewNop()),
+			)
+			require.NoError(t, err)
+			t.Cleanup(worker.pollTicker.Stop)
+
+			require.Equal(t, "custom-value", worker.labels["custom-label"])
+			require.Equal(t, test.expectedWorkerName, worker.labels[v1.LabelWorkerName])
+		})
+	}
+}
+
 func TestWorkerRecoversControllerSessionWithoutDeletingRunningVM(t *testing.T) {
 	firstHeartbeat := make(chan struct{})
 	reregistered := make(chan struct{})
