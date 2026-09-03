@@ -601,6 +601,7 @@ func (worker *Worker) syncVMs(
 			currentVMResource := vm.Resource()
 
 			if worker.softnetPolicyUpdates.OrElse(false) &&
+				vm.Running() &&
 				currentVMResource.SoftnetEnabled() && vmResource.SoftnetEnabled() &&
 				currentVMResource.SoftnetPolicyChanged(vmResource.VMSpec) {
 				if err := vm.UpdateSoftnetPolicy(ctx,
@@ -687,10 +688,11 @@ func (worker *Worker) monitorRunningVM(
 	// Try to apply the host process updates in-place or recover processes that exited unexpectedly
 	hostProcessesChanged := !currentVMResource.VMSpec.HostProcessesEqual(vmResource.VMSpec)
 	hostProcessesNeedRestart := currentVMResource.Generation == vmResource.Generation &&
-		v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeRunning) &&
 		!vm.HostProcessSet().Ready()
 
-	if vmResource.PowerState == v1.PowerStateRunning && (hostProcessesChanged || hostProcessesNeedRestart) {
+	if vmResource.PowerState == v1.PowerStateRunning &&
+		vm.Running() &&
+		(hostProcessesChanged || hostProcessesNeedRestart) {
 		if err := vm.HostProcessSet().Replace(ctx, vmResource.HostProcesses); err != nil {
 			worker.logger.Warnf("failed to update host processes for VM %q: %v",
 				vmResource.Name, err)
@@ -709,9 +711,7 @@ func (worker *Worker) monitorRunningVM(
 	)
 
 	if vmResource.PowerState == v1.PowerStateRunning &&
-		!v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeStopping) &&
-		!v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeSuspending) &&
-		v1.ConditionIsTrue(vm.Conditions(), v1.ConditionTypeRunning) &&
+		vm.Running() &&
 		endpointsChanged {
 		currentVMResource.Endpoints = vmResource.Endpoints
 		appliedInPlace = true

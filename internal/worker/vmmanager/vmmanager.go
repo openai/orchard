@@ -24,6 +24,7 @@ type VM interface {
 	StatusMessage() string
 	Err() error
 	Conditions() []v1.Condition
+	Running() bool
 
 	Start(eventStreamer *client.EventStreamer)
 	Suspend() <-chan error

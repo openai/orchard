@@ -41,6 +41,12 @@ func (vm *delayedStopVM) Status() v1.VMStatus { return vm.status }
 
 func (vm *delayedStopVM) Conditions() []v1.Condition { return vm.conditions }
 
+func (vm *delayedStopVM) Running() bool {
+	return v1.ConditionIsTrue(vm.conditions, v1.ConditionTypeRunning) &&
+		!v1.ConditionIsTrue(vm.conditions, v1.ConditionTypeStopping) &&
+		!v1.ConditionIsTrue(vm.conditions, v1.ConditionTypeSuspending)
+}
+
 func (vm *delayedStopVM) Resource() v1.VM { return vm.resource }
 
 func (vm *delayedStopVM) SetResource(resource v1.VM) {
@@ -127,6 +133,57 @@ func TestMonitorWaitsForStopBeforeApplyingGeneration(t *testing.T) {
 				require.Zero(t, vm.starts)
 			}
 		})
+	}
+}
+
+func TestMonitorPreservesRestartAfterHostProcessUpdate(t *testing.T) {
+	events := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusOK)
+		events <- struct{}{}
+	}))
+	defer server.Close()
+	apiClient, err := client.New(client.WithAddress(server.URL))
+	require.NoError(t, err)
+	worker := &Worker{client: apiClient, runtime: runtime.NewSynthetic()}
+	update := func(context.Context, v1.VM) error { return nil }
+
+	// An earlier specification change has already initiated a restart
+	vm := &delayedStopVM{
+		VM: &synthetic.VM{VM: base.NewVM(v1.VM{}, ondiskname.OnDiskName{}, zap.NewNop().Sugar())},
+		resource: v1.VM{
+			Name:          "test-vm",
+			PowerState:    v1.PowerStateRunning,
+			HostProcesses: []v1.HostProcess{{Name: "removed", Program: "unused"}},
+		},
+		conditions: []v1.Condition{
+			{Type: v1.ConditionTypeRunning, State: v1.ConditionStateFalse},
+			{Type: v1.ConditionTypeStopping, State: v1.ConditionStateTrue},
+		},
+	}
+	desired := vm.resource
+	desired.Generation = 2
+	desired.HostProcesses = nil
+
+	// Removing the host process must leave the generation pending while stopping
+	require.NoError(t, worker.monitorRunningVM(t.Context(), &desired, vm, update))
+	require.Zero(t, vm.resource.Generation)
+	require.Zero(t, desired.ObservedGeneration)
+	require.Zero(t, vm.starts)
+
+	// After stopping, the pending generation must still cause the VM to start
+	v1.ConditionsSet(&vm.conditions, v1.Condition{
+		Type: v1.ConditionTypeStopping, State: v1.ConditionStateFalse,
+	})
+	require.NoError(t, worker.monitorRunningVM(t.Context(), &desired, vm, update))
+	require.Equal(t, desired.Generation, vm.resource.Generation)
+	require.Equal(t, desired.Generation, desired.ObservedGeneration)
+	require.Equal(t, 1, vm.starts)
+	require.Empty(t, vm.resource.HostProcesses)
+	select {
+	case <-events:
+	case <-time.After(time.Second):
+		t.Fatal("restart event stream did not close")
 	}
 }
 

@@ -927,6 +927,8 @@ func (vm *recoveryTestVM) Conditions() []v1.Condition {
 	return nil
 }
 
+func (vm *recoveryTestVM) Running() bool { return false }
+
 func (vm *recoveryTestVM) Stop() <-chan error {
 	vm.stopped.Store(true)
 
