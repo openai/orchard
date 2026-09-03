@@ -119,7 +119,7 @@ func TestSpecUpdateSoftnetSuspendable(t *testing.T) {
 		[]worker.Option{worker.WithSoftnetPolicyUpdates(false)},
 	)
 
-	// Create a suspendable VM with Softnet enabled
+	// Create a suspendable VM with Softnet enabled and two ports exposed
 	vmName := "test"
 
 	err := devClient.VMs().Create(t.Context(), &v1.VM{
@@ -131,8 +131,9 @@ func TestSpecUpdateSoftnetSuspendable(t *testing.T) {
 		Memory:   8 * 1024,
 		Headless: true,
 		VMSpec: v1.VMSpec{
-			Suspendable: true,
-			NetSoftnet:  true,
+			Suspendable:      true,
+			NetSoftnet:       true,
+			NetSoftnetExpose: []string{"2222:22", "8080:80"},
 		},
 	})
 	require.NoError(t, err)
@@ -149,13 +150,14 @@ func TestSpecUpdateSoftnetSuspendable(t *testing.T) {
 		return vm.Status == v1.VMStatusRunning
 	}), "failed to start a VM")
 
-	// Ensure that the VM is using "--suspendable" and "--net-softnet"
+	// Ensure that the VM is using "--suspendable", "--net-softnet" and "--net-softnet-expose"
 	tartVMName := ondiskname.New(vmName, vm.UID, vm.RestartCount).String()
 
 	tartRunCmdline, err := tartRunProcessCmdline(tartVMName)
 	require.NoError(t, err)
 	require.Contains(t, tartRunCmdline, "--suspendable")
 	require.Contains(t, tartRunCmdline, "--net-softnet")
+	require.True(t, sliceContainsAnotherSlice(tartRunCmdline, []string{"--net-softnet-expose", "2222:22,8080:80"}))
 
 	// Update the VM's specification and tighten the Softnet restrictions
 	vm.NetSoftnetAllow = []string{"10.0.0.0/16"}
@@ -175,13 +177,15 @@ func TestSpecUpdateSoftnetSuspendable(t *testing.T) {
 		return vm.ObservedGeneration == 1
 	}), "failed to wait for the VM's observed generation to be updated")
 
-	// Ensure that the VM is using "--suspendable", "--net-softnet" and "--net-softnet-{allow,block}"
+	// Ensure that the VM is using "--suspendable", "--net-softnet",
+	// "--net-softnet-{allow,block}" and still "--net-softnet-expose"
 	tartRunCmdline, err = tartRunProcessCmdline(tartVMName)
 	require.NoError(t, err)
 	require.Contains(t, tartRunCmdline, "--suspendable")
 	require.Contains(t, tartRunCmdline, "--net-softnet")
 	require.True(t, sliceContainsAnotherSlice(tartRunCmdline, []string{"--net-softnet-allow", "10.0.0.0/16"}))
 	require.True(t, sliceContainsAnotherSlice(tartRunCmdline, []string{"--net-softnet-block", "0.0.0.0/0"}))
+	require.True(t, sliceContainsAnotherSlice(tartRunCmdline, []string{"--net-softnet-expose", "2222:22,8080:80"}))
 }
 
 //nolint:gosec,modernize,perfsprint,staticcheck // preserve the original integration test

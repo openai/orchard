@@ -741,6 +741,17 @@ components:
             - "66.66.0.0/16"
           items:
             type: string
+        netSoftnetExpose:
+          type: array
+          description: |
+            TCP ports to expose when using Softnet isolation, each in the
+            `EXTERNAL:INTERNAL` format (see `tart run`'s `--net-softnet-expose`),
+            with traffic to the external port on the host forwarded to the
+            internal port on the VM. Enables `netSoftnet`.
+          example:
+            - "2222:22"
+          items:
+            type: string
         suspendable:
           type: boolean
           description: |

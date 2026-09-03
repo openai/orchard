@@ -25,6 +25,7 @@ var diskSize uint64
 var netSoftnet bool
 var netSoftnetAllow []string
 var netSoftnetBlock []string
+var netSoftnetExpose []string
 var netBridged string
 var headless bool
 var nested bool
@@ -69,6 +70,9 @@ func newCreateVMCommand() *cobra.Command {
 	command.Flags().StringSliceVar(&netSoftnetBlock, "net-softnet-block", []string{},
 		"comma-separated list of CIDRs to block the traffic to when using Softnet isolation, see "+
 			"\"tart run\"'s help for \"--net-softnet-block\" for more details; automatically enables --net-softnet")
+	command.Flags().StringSliceVar(&netSoftnetExpose, "net-softnet-expose", []string{},
+		"comma-separated list of TCP ports to expose when using Softnet isolation, in the EXTERNAL:INTERNAL "+
+			"format, see \"tart run\"'s help for \"--net-softnet-expose\" for more details; automatically enables --net-softnet")
 	command.Flags().StringVar(&netBridged, "net-bridged", "", "whether to use Bridged network mode")
 	command.Flags().BoolVar(&headless, "headless", true, "whether to run without graphics")
 	command.Flags().BoolVar(&nested, "nested", false, "enable nested virtualization")
@@ -155,6 +159,7 @@ func runCreateVM(cmd *cobra.Command, args []string) error {
 			NetSoftnet:           netSoftnet,
 			NetSoftnetAllow:      netSoftnetAllow,
 			NetSoftnetBlock:      netSoftnetBlock,
+			NetSoftnetExpose:     netSoftnetExpose,
 			Suspendable:          suspendable,
 		},
 		NetBridged:   netBridged,

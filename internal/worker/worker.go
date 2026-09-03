@@ -455,7 +455,7 @@ func (worker *Worker) registerWorker(ctx context.Context) error {
 		DefaultCPU:    worker.defaultCPU,
 		DefaultMemory: worker.defaultMemory,
 		Capabilities: lo.Ternary(worker.runtime.ID() == v1.RuntimeTart || worker.runtime.Synthetic(),
-			v1.WorkerCapabilities{v1.WorkerCapabilityVMEndpoints}, nil),
+			v1.WorkerCapabilities{v1.WorkerCapabilityVMEndpoints, v1.WorkerCapabilityVMExposedPorts}, nil),
 	})
 	if err != nil {
 		return err
