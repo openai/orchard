@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cirruslabs/orchard/internal/controller/lifecycle"
+	"github.com/cirruslabs/orchard/internal/controller/scheduler"
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
 	"github.com/cirruslabs/orchard/internal/responder"
 	"github.com/cirruslabs/orchard/internal/simplename"
@@ -258,6 +260,36 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 		if v1.SemanticallyEqual(dbVM.VMSpec, userVM.VMSpec) {
 			// Nothing was changed
 			return responder.JSON(http.StatusOK, dbVM)
+		}
+
+		// A worker keeps the old ports bound until it stops the VM to apply the new
+		// generation, so releasing them in the controller's view straight away would
+		// let another VM be scheduled onto a port that is still in use
+		if dbVM.IsScheduled() && !slices.Equal(dbVM.NetSoftnetExpose, userVM.NetSoftnetExpose) {
+			return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("\"netSoftnetExpose\" "+
+				"cannot be changed once the VM is scheduled on worker %q", dbVM.Worker))
+		}
+
+		// Endpoints can be changed on a VM that is already scheduled, which never goes
+		// past the scheduler, so the worker it sits on is checked here instead
+		if dbVM.IsScheduled() && !v1.SemanticallyEqual(dbVM.Endpoints, userVM.Endpoints) {
+			vms, err := txn.ListVMs()
+			if err != nil {
+				controller.logger.Errorf("failed to list VMs in the DB: %v", err)
+
+				return responder.Code(http.StatusInternalServerError)
+			}
+
+			updatedVM := *dbVM
+			updatedVM.VMSpec = userVM.VMSpec
+
+			// the whole specification has to come out clean: a VM being placed is not
+			// refused a worker for a clash it did not make, but this one owns its own
+			if scheduler.WorkerPortConflict(vms, dbVM.Worker, dbVM.Name, updatedVM) {
+				return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse(
+					"\"endpoints\" cannot take a worker port that another VM on worker %q holds",
+					dbVM.Worker))
+			}
 		}
 
 		// VM specification was changed
