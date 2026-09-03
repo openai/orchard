@@ -122,6 +122,15 @@ func (vm *VM) ConditionsSet() mapset.Set[v1.ConditionType] {
 	return vm.conditions
 }
 
+// Running reports whether the VM is running and neither stopping nor suspending.
+func (vm *VM) Running() bool {
+	// Snapshot the flags together so shutdown cannot mix old and new conditions
+	conditions := vm.conditions.Clone()
+
+	return conditions.ContainsOne(v1.ConditionTypeRunning) &&
+		!conditions.ContainsAny(v1.ConditionTypeStopping, v1.ConditionTypeSuspending)
+}
+
 func (vm *VM) Conditions() []v1.Condition {
 	// The worker must observe transitions before applying a new specification.
 	return []v1.Condition{
