@@ -34,7 +34,8 @@ func TestEndpoint(t *testing.T) {
 		Headless: true,
 		Endpoints: []v1.EndpointSpec{
 			{
-				Name: endpointName,
+				Name:     endpointName,
+				Protocol: v1.EndpointProtocolTCP,
 				Target: v1.ConnectionTarget{
 					VM: &v1.ConnectionTargetVM{Port: 22},
 				},
