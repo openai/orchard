@@ -5,9 +5,13 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/netip"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cirruslabs/orchard/internal/udpconn"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -45,13 +49,15 @@ func TestEndpointPropagatesTCPHalfClose(t *testing.T) {
 	}()
 
 	// Create an endpoint that forwards accepted connections to the backend
-	bindTarget := func(v1.ConnectionTarget) (Dial, error) {
+	bindTarget := func(v1.ConnectionTarget, v1.EndpointProtocol) (Dial, error) {
 		return func(ctx context.Context) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", backendListener.Addr().String())
 		}, nil
 	}
 
-	ep, err := newEndpoint(v1.EndpointSpec{Name: "half-close"}, bindTarget, zap.NewNop().Sugar())
+	ep, err := newEndpoint(
+		v1.EndpointSpec{Name: "half-close", Protocol: v1.EndpointProtocolTCP}, bindTarget, zap.NewNop().Sugar(),
+	)
 	require.NoError(t, err)
 	t.Cleanup(ep.close)
 
@@ -79,6 +85,112 @@ func TestEndpointPropagatesTCPHalfClose(t *testing.T) {
 	require.NoError(t, <-backendResult)
 }
 
+//nolint:forcetypeassert // the backend address comes from a UDP socket
+func TestUDPEndpointPreservesDatagramsAndClientIsolation(t *testing.T) {
+	const (
+		ioTimeout  = 5 * time.Second
+		largeSize  = 60 * 1024
+		packetSize = 65535
+	)
+
+	// Listen for requests forwarded by the endpoint
+	backend, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	defer backend.Close()
+	require.NoError(t, udpconn.TuneSocket(backend))
+	require.NoError(t, backend.SetDeadline(time.Now().Add(ioTimeout)))
+
+	// Create an endpoint with the real target dialer, substituting only the VM's IP
+	bindTarget := NewVMTargetBinder(func(context.Context) (string, error) {
+		return "127.0.0.1", nil
+	}, nil)
+
+	ep, err := newEndpoint(v1.EndpointSpec{
+		Protocol: v1.EndpointProtocolUDP,
+		Target: v1.ConnectionTarget{
+			VM: &v1.ConnectionTargetVM{Port: uint16(backend.LocalAddr().(*net.UDPAddr).Port)},
+		},
+	}, bindTarget, zap.NewNop().Sugar())
+	require.NoError(t, err)
+	defer ep.close()
+
+	// Give each client ordinary, empty or binary, and large datagrams
+	clients := []*struct {
+		socket  *net.UDPConn
+		peer    netip.AddrPort
+		packets []string
+	}{
+		{packets: []string{"", "a/1", "a/2", strings.Repeat("\x00\xff", largeSize/2)}},
+		{packets: []string{"\x00\xff\x01\x80", "b/1", "b/2", strings.Repeat("\x80\x01", largeSize/2)}},
+	}
+
+	clientAddress := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(ep.port)}
+
+	for _, client := range clients {
+		client.socket, err = net.DialUDP("udp4", nil, clientAddress)
+		require.NoError(t, err)
+		defer client.socket.Close()
+		require.NoError(t, udpconn.TuneSocket(client.socket))
+		require.NoError(t, client.socket.SetDeadline(time.Now().Add(ioTimeout)))
+	}
+
+	// Verify each received burst contains the expected datagrams from a single peer
+	receivePackets := func(socket *net.UDPConn, packets []string) netip.AddrPort {
+		t.Helper()
+
+		buffer := make([]byte, packetSize)
+		var sender netip.AddrPort
+		var received []string
+
+		for i := range packets {
+			n, peer, err := socket.ReadFromUDPAddrPort(buffer)
+			require.NoError(t, err)
+
+			if i == 0 {
+				sender = peer
+			}
+
+			require.Equal(t, sender, peer, "datagrams came from different peers")
+			received = append(received, string(buffer[:n]))
+		}
+
+		require.ElementsMatch(t, packets, received)
+
+		return sender
+	}
+
+	// Repeat the exchange ten times to check session reuse
+	for round := range 10 {
+		// Receive both clients' request bursts before replying to either
+		for i, client := range clients {
+			for _, packet := range client.packets {
+				_, err := client.socket.Write([]byte(packet))
+				require.NoError(t, err)
+			}
+
+			peer := receivePackets(backend, client.packets)
+
+			if round == 0 {
+				client.peer = peer
+			}
+
+			require.Equal(t, client.peer, peer, "client %d changed backend peer", i)
+		}
+
+		require.NotEqual(t, clients[0].peer, clients[1].peer)
+
+		// Reply to B, then A, to catch routing every reply to the latest sender
+		for _, client := range slices.Backward(clients) {
+			for _, packet := range client.packets {
+				_, err := backend.WriteToUDPAddrPort([]byte(packet), client.peer)
+				require.NoError(t, err)
+			}
+
+			receivePackets(client.socket, client.packets)
+		}
+	}
+}
+
 func TestSetRecreatesFailedEndpoint(t *testing.T) {
 	endpointSet := NewSet(zap.NewNop().Sugar())
 	endpointSet.Start()
@@ -87,7 +199,7 @@ func TestSetRecreatesFailedEndpoint(t *testing.T) {
 	const endpointName = "ssh"
 
 	// Create a listening endpoint
-	endpointSpecs := []v1.EndpointSpec{{Name: endpointName}}
+	endpointSpecs := []v1.EndpointSpec{{Name: endpointName, Protocol: v1.EndpointProtocolTCP}}
 
 	statuses := endpointSet.Reconcile(endpointSpecs, testBindTarget)
 	require.Len(t, statuses, 1)
@@ -120,7 +232,7 @@ func TestSetRecreatesEndpointsWhenDesiredSetChanges(t *testing.T) {
 	t.Cleanup(endpointSet.Stop)
 
 	// Start with one endpoint whose worker port can move
-	flexibleSpec := v1.EndpointSpec{Name: "flexible"}
+	flexibleSpec := v1.EndpointSpec{Name: "flexible", Protocol: v1.EndpointProtocolTCP}
 	statuses := endpointSet.Reconcile([]v1.EndpointSpec{flexibleSpec}, testBindTarget)
 	require.Len(t, statuses, 1)
 	require.Equal(t, v1.EndpointStateListening, statuses[0].State)
@@ -133,6 +245,7 @@ func TestSetRecreatesEndpointsWhenDesiredSetChanges(t *testing.T) {
 		[]v1.EndpointSpec{
 			{
 				Name:            "fixed",
+				Protocol:        v1.EndpointProtocolTCP,
 				WorkerPortRange: &v1.PortRange{Min: claimedPort, Max: claimedPort},
 			},
 			flexibleSpec,
@@ -151,7 +264,7 @@ func TestSetRecreatesEndpointsWhenDesiredSetChanges(t *testing.T) {
 
 func TestSetDoesNotRepeatFullResetAfterPartialFailure(t *testing.T) {
 	// Occupy a worker port so one desired endpoint cannot start
-	blocker, blockedPort, err := listen(nil)
+	blocker, blockedPort, err := listen(v1.EndpointProtocolTCP, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, blocker.Close()) })
 
@@ -162,9 +275,10 @@ func TestSetDoesNotRepeatFullResetAfterPartialFailure(t *testing.T) {
 	desired := []v1.EndpointSpec{
 		{
 			Name:            "blocked",
+			Protocol:        v1.EndpointProtocolTCP,
 			WorkerPortRange: &v1.PortRange{Min: blockedPort, Max: blockedPort},
 		},
-		{Name: "healthy"},
+		{Name: "healthy", Protocol: v1.EndpointProtocolTCP},
 	}
 
 	// Apply the desired set once and remember its healthy listener
@@ -178,7 +292,7 @@ func TestSetDoesNotRepeatFullResetAfterPartialFailure(t *testing.T) {
 	require.Same(t, healthyEndpoint, endpointSet.endpoints["healthy"])
 }
 
-func testBindTarget(v1.ConnectionTarget) (Dial, error) {
+func testBindTarget(v1.ConnectionTarget, v1.EndpointProtocol) (Dial, error) {
 	return func(context.Context) (net.Conn, error) {
 		return nil, net.ErrClosed
 	}, nil

@@ -5,6 +5,7 @@ import "fmt"
 
 type EndpointSpec struct {
 	Name            string           `json:"name"`
+	Protocol        EndpointProtocol `json:"protocol"`
 	Target          ConnectionTarget `json:"target"`
 	WorkerPortRange *PortRange       `json:"workerPortRange,omitempty"`
 }
@@ -12,6 +13,10 @@ type EndpointSpec struct {
 func (endpoint EndpointSpec) Validate() error {
 	if endpoint.Name == "" {
 		return fmt.Errorf("endpoint name cannot be empty")
+	}
+
+	if err := endpoint.Protocol.Validate(); err != nil {
+		return fmt.Errorf("endpoint %q: %w", endpoint.Name, err)
 	}
 
 	if err := endpoint.Target.Validate(); err != nil {
@@ -28,10 +33,32 @@ func (endpoint EndpointSpec) Validate() error {
 }
 
 type EndpointStatus struct {
-	Name       string        `json:"name"`
-	WorkerPort uint16        `json:"workerPort,omitempty"`
-	State      EndpointState `json:"state"`
-	Message    string        `json:"message,omitempty"`
+	Name       string           `json:"name"`
+	Protocol   EndpointProtocol `json:"protocol"`
+	WorkerPort uint16           `json:"workerPort,omitempty"`
+	State      EndpointState    `json:"state"`
+	Message    string           `json:"message,omitempty"`
+}
+
+type EndpointProtocol string
+
+const (
+	EndpointProtocolTCP EndpointProtocol = "tcp"
+	EndpointProtocolUDP EndpointProtocol = "udp"
+)
+
+func (protocol EndpointProtocol) Validate() error {
+	switch protocol {
+	case EndpointProtocolTCP, EndpointProtocolUDP:
+		return nil
+	default:
+		return fmt.Errorf(
+			"unsupported endpoint protocol %q: expected %s or %s",
+			protocol,
+			EndpointProtocolTCP,
+			EndpointProtocolUDP,
+		)
+	}
 }
 
 type PortRange struct {
