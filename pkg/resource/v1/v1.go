@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -162,12 +163,59 @@ func (vm *VM) Validate() error {
 		if len(vm.NetSoftnetBlock) != 0 {
 			return unsupportedFieldError("netSoftnetBlock")
 		}
+		if len(vm.NetSoftnetExpose) != 0 {
+			return unsupportedFieldError("netSoftnetExpose")
+		}
 		if len(vm.HostDirs) != 0 {
 			return unsupportedFieldError("hostDirs")
 		}
 		if vm.Suspendable {
 			return unsupportedFieldError("suspendable")
 		}
+	}
+
+	seenExternalPorts := map[uint16]struct{}{}
+
+	for _, entry := range vm.NetSoftnetExpose {
+		exposedPort, err := NewExposedPortFromString(entry)
+		if err != nil {
+			return fmt.Errorf("netSoftnetExpose: %w", err)
+		}
+
+		if _, ok := seenExternalPorts[exposedPort.External]; ok {
+			return fmt.Errorf("netSoftnetExpose: %w %q: external port %d is exposed more than once",
+				ErrInvalidExposedPort, entry, exposedPort.External)
+		}
+
+		seenExternalPorts[exposedPort.External] = struct{}{}
+	}
+
+	// Tart binds the Softnet ports and every endpoint listener binds one of its own.
+	// The worker creates the listeners in the order they are declared, each taking the
+	// lowest port of its range that is still free, so walking them the same way says
+	// what it will arrive at, and which endpoint it will leave with nothing.
+	takenPorts := maps.Clone(seenExternalPorts)
+
+	for _, endpoint := range vm.Endpoints {
+		portRange := endpoint.WorkerPortRange
+
+		if portRange == nil {
+			continue
+		}
+
+		port, ok := portRange.FreePort(takenPorts)
+		if !ok {
+			if portRange.Min == portRange.Max {
+				return fmt.Errorf("endpoint %q: %w: worker port %d is taken by netSoftnetExpose "+
+					"or another endpoint", endpoint.Name, ErrInvalidExposedPort, portRange.Min)
+			}
+
+			return fmt.Errorf("endpoint %q: %w: every worker port in %d-%d is taken by "+
+				"netSoftnetExpose or the other endpoints", endpoint.Name, ErrInvalidExposedPort,
+				portRange.Min, portRange.Max)
+		}
+
+		takenPorts[port] = struct{}{}
 	}
 
 	return nil
@@ -198,6 +246,7 @@ type VMSpec struct {
 	NetSoftnet           bool           `json:"netSoftnet,omitempty"`
 	NetSoftnetAllow      []string       `json:"netSoftnetAllow,omitempty"`
 	NetSoftnetBlock      []string       `json:"netSoftnetBlock,omitempty"`
+	NetSoftnetExpose     []string       `json:"netSoftnetExpose,omitempty"`
 	Suspendable          bool           `json:"suspendable,omitempty"`
 	PowerState           PowerState     `json:"powerState,omitempty"`
 }
@@ -214,7 +263,8 @@ func (vm VMSpec) HostProcessesEqual(other VMSpec) bool {
 
 func (vm VMSpec) SoftnetEnabled() bool {
 	return vm.NetSoftnetDeprecated || vm.NetSoftnet ||
-		len(vm.NetSoftnetAllow) != 0 || len(vm.NetSoftnetBlock) != 0
+		len(vm.NetSoftnetAllow) != 0 || len(vm.NetSoftnetBlock) != 0 ||
+		len(vm.NetSoftnetExpose) != 0
 }
 
 func (vm VMSpec) SoftnetPolicyChanged(other VMSpec) bool {

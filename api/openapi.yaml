@@ -741,6 +741,23 @@ components:
             - "66.66.0.0/16"
           items:
             type: string
+        netSoftnetExpose:
+          type: array
+          description: |
+            TCP ports to expose when using Softnet isolation, each in the
+            `EXTERNAL:INTERNAL` format (see `tart run`'s `--net-softnet-expose`),
+            with traffic to the external port on the host forwarded to the
+            internal port on the VM. The scheduler does not place a VM on a
+            worker where another VM already holds one of its external ports or
+            draws them from an endpoint's port range, and the ports of a
+            scheduled VM cannot be changed at all, because its worker keeps them
+            bound until the VM stops. Pick external ports outside the host's
+            ephemeral range, which the operating system hands to whatever asks
+            for a port, endpoint listeners included. Enables `netSoftnet`.
+          example:
+            - "2222:22"
+          items:
+            type: string
         suspendable:
           type: boolean
           description: |

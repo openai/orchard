@@ -55,6 +55,17 @@ func (portRange PortRange) Validate() error {
 	return nil
 }
 
+// FreePort returns the lowest port of the range that is not in taken.
+func (portRange PortRange) FreePort(taken map[uint16]struct{}) (uint16, bool) {
+	for port := int(portRange.Min); port <= int(portRange.Max); port++ {
+		if _, ok := taken[uint16(port)]; !ok {
+			return uint16(port), true
+		}
+	}
+
+	return 0, false
+}
+
 type EndpointState string
 
 const (
