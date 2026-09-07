@@ -364,11 +364,11 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 		runArgs = append(runArgs, "--nested")
 	}
 
-	if resource.NoAudio {
+	if !resource.Audio {
 		runArgs = append(runArgs, "--no-audio")
 	}
 
-	if resource.NoClipboard {
+	if !resource.Clipboard {
 		runArgs = append(runArgs, "--no-clipboard")
 	}
 
