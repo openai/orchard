@@ -7,7 +7,6 @@ import (
 	"time"
 
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
-	"github.com/cirruslabs/orchard/internal/controller/store/badger"
 	"github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -152,26 +151,12 @@ func TestWatchVM(t *testing.T) {
 		},
 	}
 
-	storeImpls := []struct {
-		Name string
-		Init func() (storepkg.Store, error)
-	}{
-		{
-			Name: "badger",
-			Init: func() (storepkg.Store, error) {
-				return badger.NewBadgerStore(t.TempDir(), true, logger.Sugar())
-			},
-		},
-	}
-
 	for _, testCase := range testCases {
-		for _, storeImpl := range storeImpls {
+		for _, storeImpl := range testStores(logger.Sugar()) {
 			name := fmt.Sprintf("%s-%s", testCase.Name, storeImpl.Name)
 
 			t.Run(name, func(t *testing.T) {
-				store, err := storeImpl.Init()
-				require.NoError(t, err)
-
+				store := storeImpl.Init(t)
 				testCase.Run(t, store)
 			})
 		}

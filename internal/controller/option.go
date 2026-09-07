@@ -10,6 +10,13 @@ import (
 
 type Option func(*Controller)
 
+type StoreBackend string
+
+const (
+	StoreBackendBadger StoreBackend = "badger"
+	StoreBackendEtcd   StoreBackend = "etcd"
+)
+
 func WithDataDir(dataDir *DataDir) Option {
 	return func(controller *Controller) {
 		controller.dataDir = dataDir
@@ -87,6 +94,14 @@ func WithExperimentalRPCV2() Option {
 func WithDisableDBCompression() Option {
 	return func(controller *Controller) {
 		controller.disableDBCompression = true
+	}
+}
+
+func WithEtcdStore(endpoints []string, keyPrefix string) Option {
+	return func(controller *Controller) {
+		controller.storeBackend = StoreBackendEtcd
+		controller.etcdEndpoints = endpoints
+		controller.etcdKeyPrefix = keyPrefix
 	}
 }
 
