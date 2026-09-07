@@ -433,9 +433,9 @@ func (vm *VM) IP(ctx context.Context) (string, error) {
 }
 
 func (vm *VM) Suspend() <-chan error {
+	vm.EndpointSet().Stop()
 	vm.HostProcessSet().Stop()
 
-	vm.EndpointSet().Stop()
 	errCh := make(chan error, 1)
 
 	select {
@@ -468,9 +468,9 @@ func (vm *VM) Suspend() <-chan error {
 }
 
 func (vm *VM) Stop() <-chan error {
+	vm.EndpointSet().Stop()
 	vm.HostProcessSet().Stop()
 
-	vm.EndpointSet().Stop()
 	vm.stopMtx.Lock()
 	defer vm.stopMtx.Unlock()
 	if vm.stopDone != nil {

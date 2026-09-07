@@ -124,9 +124,9 @@ func (vm *VM) Start(eventStreamer *client.EventStreamer) {
 }
 
 func (vm *VM) Suspend() <-chan error {
+	vm.EndpointSet().Stop()
 	vm.HostProcessSet().Stop()
 
-	vm.EndpointSet().Stop()
 	errChan := make(chan error, 1)
 
 	errChan <- nil
@@ -141,9 +141,9 @@ func (vm *VM) IP(ctx context.Context) (string, error) {
 }
 
 func (vm *VM) Stop() <-chan error {
+	vm.EndpointSet().Stop()
 	vm.HostProcessSet().Stop()
 
-	vm.EndpointSet().Stop()
 	errChan := make(chan error, 1)
 
 	errChan <- nil
