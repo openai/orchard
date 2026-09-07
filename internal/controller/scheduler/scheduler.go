@@ -610,9 +610,10 @@ func (scheduler *Scheduler) healthCheckVM(txn storepkg.Transaction, vm v1.VM) er
 
 		for _, endpoint := range vm.Endpoints {
 			vm.ObservedEndpoints = append(vm.ObservedEndpoints, v1.EndpointStatus{
-				Name:    endpoint.Name,
-				State:   v1.EndpointStateError,
-				Message: "worker doesn't support VM endpoints",
+				Name:     endpoint.Name,
+				Protocol: endpoint.Protocol,
+				State:    v1.EndpointStateError,
+				Message:  "worker doesn't support VM endpoints",
 			})
 		}
 

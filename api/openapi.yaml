@@ -695,7 +695,7 @@ components:
         endpoints:
           type: array
           description: |
-            TCP services inside the VM to expose through TCP ports on the Orchard
+            TCP or UDP services inside the VM to expose through ports on the Orchard
             Worker. The worker ports assigned to the endpoints are reported in
             `observedEndpoints`.
             Endpoint ports listen on all worker network interfaces. Use firewall
@@ -904,7 +904,7 @@ components:
           type: integer
           minimum: 1
           maximum: 65535
-          description: TCP port inside the contextual VM.
+          description: Port inside the contextual VM, using the endpoint's protocol.
     PortRange:
       title: Port range
       type: object
@@ -928,15 +928,22 @@ components:
     EndpointSpec:
       title: Endpoint specification
       type: object
-      description: A desired worker TCP endpoint backed by a connection target.
+      description: A desired worker TCP or UDP endpoint backed by a connection target.
       required:
         - name
+        - protocol
         - target
       properties:
         name:
           type: string
           minLength: 1
           description: Stable endpoint identifier, unique within `endpoints`.
+        protocol:
+          type: string
+          enum: [ tcp, udp ]
+          description: |
+            Transport protocol for both the worker socket and the VM target.
+            TCP and UDP endpoints can use the same port number but must have different names.
         target:
           $ref: '#/components/schemas/ConnectionTarget'
         workerPortRange:
@@ -952,23 +959,28 @@ components:
       description: Current observation for a desired endpoint.
       required:
         - name
+        - protocol
         - state
       properties:
         name:
           type: string
           minLength: 1
           description: Stable endpoint identifier matching the desired endpoint.
+        protocol:
+          type: string
+          enum: [ tcp, udp ]
+          description: Endpoint transport protocol.
         workerPort:
           type: integer
           minimum: 1
           maximum: 65535
-          description: TCP port assigned to this endpoint on the Orchard Worker.
+          description: Port assigned to this endpoint on the Orchard Worker for its protocol.
         state:
           type: string
           enum: [ listening, error ]
           description: |
-            Exposure state. `listening` means that the worker TCP port is bound; it
-            does not imply that the service inside the VM is healthy or accepting connections.
+            Exposure state. `listening` means that the worker socket is bound; it
+            does not imply that the service inside the VM is healthy or responding.
         message:
           type: string
           description: Human-readable detail, primarily populated when `state` is `error`.

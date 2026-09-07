@@ -77,9 +77,10 @@ func (set *Set) Reconcile(
 		current, err := newEndpoint(spec, bindTarget, set.logger)
 		if err != nil {
 			statuses = append(statuses, v1.EndpointStatus{
-				Name:    name,
-				State:   v1.EndpointStateError,
-				Message: err.Error(),
+				Name:     name,
+				Protocol: spec.Protocol,
+				State:    v1.EndpointStateError,
+				Message:  err.Error(),
 			})
 
 			continue

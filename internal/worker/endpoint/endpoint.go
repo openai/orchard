@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync/atomic"
 
 	"github.com/cirruslabs/orchard/internal/proxy"
+	"github.com/cirruslabs/orchard/internal/udpconn"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"go.uber.org/zap"
 )
@@ -37,13 +39,13 @@ func newEndpoint(
 	logger *zap.SugaredLogger,
 ) (*endpoint, error) {
 	// Prepare the target dialer before opening the worker listener
-	dial, err := bindTarget(spec.Target)
+	dial, err := bindTarget(spec.Target, spec.Protocol)
 	if err != nil {
 		return nil, err
 	}
 
 	// Claim a worker port from the requested range
-	listener, port, err := listen(spec.WorkerPortRange)
+	listener, port, err := listen(spec.Protocol, spec.WorkerPortRange)
 	if err != nil {
 		return nil, err
 	}
@@ -67,23 +69,35 @@ func newEndpoint(
 	return result, nil
 }
 
-//nolint:forcetypeassert,gosec,noctx // owned TCP listeners intentionally bind all interfaces and return TCPAddr
-func listen(portRange *v1.PortRange) (net.Listener, uint16, error) {
+func listen(protocol v1.EndpointProtocol, portRange *v1.PortRange) (net.Listener, uint16, error) {
+	// UDP needs a custom net.Listener to associate each sender with a connection
+	listenFunc := net.Listen
+	if protocol == v1.EndpointProtocolUDP {
+		listenFunc = udpconn.Listen
+	}
+
 	// Let the operating system select a port when no range was requested
 	if portRange == nil {
-		listener, err := net.Listen("tcp", ":0")
+		listener, err := listenFunc(string(protocol), ":0")
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to bind a TCP listener: %w", err)
+			return nil, 0, fmt.Errorf("failed to bind a %s listener: %w", protocol, err)
 		}
 
-		return listener, uint16(listener.Addr().(*net.TCPAddr).Port), nil
+		address, err := netip.ParseAddrPort(listener.Addr().String())
+		if err != nil {
+			_ = listener.Close()
+
+			return nil, 0, err
+		}
+
+		return listener, address.Port(), nil
 	}
 
 	var lastErr error
 
 	// Try every requested port in ascending order until one is available
 	for candidate := int(portRange.Min); candidate <= int(portRange.Max); candidate++ {
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", candidate))
+		listener, err := listenFunc(string(protocol), fmt.Sprintf(":%d", candidate))
 		if err != nil {
 			lastErr = err
 
@@ -94,7 +108,8 @@ func listen(portRange *v1.PortRange) (net.Listener, uint16, error) {
 	}
 
 	return nil, 0, fmt.Errorf(
-		"failed to bind a TCP listener in worker port range %d-%d: %w",
+		"failed to bind a %s listener in worker port range %d-%d: %w",
+		protocol,
 		portRange.Min,
 		portRange.Max,
 		lastErr,
@@ -108,14 +123,16 @@ func (ep *endpoint) running() bool {
 func (ep *endpoint) status() v1.EndpointStatus {
 	if failure := ep.failure.Load(); failure != nil {
 		return v1.EndpointStatus{
-			Name:    ep.spec.Name,
-			State:   v1.EndpointStateError,
-			Message: (*failure).Error(),
+			Name:     ep.spec.Name,
+			Protocol: ep.spec.Protocol,
+			State:    v1.EndpointStateError,
+			Message:  (*failure).Error(),
 		}
 	}
 
 	return v1.EndpointStatus{
 		Name:       ep.spec.Name,
+		Protocol:   ep.spec.Protocol,
 		WorkerPort: ep.port,
 		State:      v1.EndpointStateListening,
 	}
@@ -187,7 +204,7 @@ func (ep *endpoint) forward(connection net.Conn) {
 
 	// Relay traffic in both directions until either side finishes
 	if err := proxy.Connections(connection, targetConnection); err != nil && ep.running() {
-		ep.logger.Debugf("endpoint %q TCP relay failed: %v", ep.spec.Name, err)
+		ep.logger.Debugf("endpoint %q relay failed: %v", ep.spec.Name, err)
 	}
 }
 
