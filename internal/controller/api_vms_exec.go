@@ -26,18 +26,13 @@ func (controller *Controller) execVM(ctx *gin.Context) responder.Responder {
 
 	// Retrieve and parse path and query parameters
 	name := ctx.Param("name")
-	sessionID := ctx.Query("session")
-	if sessionID == "" {
-		sessionID = ctx.Query("cmux_session_id")
-	}
-
 	command := ctx.Query("command")
-	if sessionID == "" && command == "" {
+	if command == "" {
 		return responder.JSON(http.StatusBadRequest,
 			NewErrorResponse("\"command\" parameter cannot be empty"))
 	}
 
-	spec, runCommand, err := parseExecSessionSpec(ctx, command)
+	options, runCommand, err := parseExecOptions(ctx, command)
 	if err != nil {
 		return responder.JSON(http.StatusBadRequest, NewErrorResponse("%v", err))
 	}
@@ -48,20 +43,6 @@ func (controller *Controller) execVM(ctx *gin.Context) responder.Responder {
 		return responder.Code(http.StatusBadRequest)
 	}
 
-	if sessionID != "" {
-		return controller.execVMReconnectable(ctx, name, sessionID, spec, runCommand, wait)
-	}
-
-	return controller.execVMLegacy(ctx, name, spec, runCommand, wait)
-}
-
-func (controller *Controller) execVMLegacy(
-	ctx *gin.Context,
-	name string,
-	spec execSessionSpec,
-	runCommand string,
-	wait uint64,
-) responder.Responder {
 	// Look-up the VM
 	waitContext, waitContextCancel := context.WithTimeout(ctx, time.Duration(wait)*time.Second)
 	defer waitContextCancel()
@@ -71,16 +52,7 @@ func (controller *Controller) execVMLegacy(
 		return responderImpl
 	}
 
-	session, err := controller.newSSHExecSession(
-		ctx,
-		waitContext,
-		vm,
-		execSessionKey{vmName: name},
-		spec,
-		runCommand,
-		nil,
-		legacyExecSessionPolicy,
-	)
+	exec, err := controller.newSSHExec(waitContext, vm, options)
 	if err != nil {
 		return responder.JSON(http.StatusServiceUnavailable, NewErrorResponse("%v", err))
 	}
@@ -90,7 +62,7 @@ func (controller *Controller) execVMLegacy(
 		OriginPatterns: []string{"*"},
 	})
 	if err != nil {
-		session.closeIfUnused()
+		_ = exec.Close()
 
 		return responder.Error(err)
 	}
@@ -102,109 +74,22 @@ func (controller *Controller) execVMLegacy(
 		_ = wsConn.CloseNow()
 	}()
 
-	return controller.serveExecSession(ctx, wsConn, session)
+	return controller.serveExec(ctx, wsConn, exec, runCommand)
 }
 
-func (controller *Controller) execVMReconnectable(
-	ctx *gin.Context,
-	name string,
-	sessionID string,
-	spec execSessionSpec,
-	runCommand string,
-	wait uint64,
-) responder.Responder {
-	key := execSessionKey{
-		vmName:    name,
-		sessionID: sessionID,
-	}
-
-	session, ok := controller.execSessions.get(key)
-	if ok {
-		if !session.specMatches(spec) {
-			return responder.JSON(http.StatusConflict,
-				NewErrorResponse("exec session %q is already running with different options", sessionID))
-		}
-	} else {
-		if spec.command == "" {
-			return responder.JSON(http.StatusNotFound,
-				NewErrorResponse("exec session %q does not exist", sessionID))
-		}
-
-		waitContext, waitContextCancel := context.WithTimeout(ctx, time.Duration(wait)*time.Second)
-		defer waitContextCancel()
-
-		vm, responderImpl := controller.waitForVM(waitContext, name)
-		if responderImpl != nil {
-			return responderImpl
-		}
-
-		var err error
-		session, _, err = controller.execSessions.getOrCreate(waitContext, key, func() (*execSession, error) {
-			return controller.newSSHExecSession(
-				ctx,
-				waitContext,
-				vm,
-				key,
-				spec,
-				runCommand,
-				controller.execSessions,
-				reconnectableExecSessionPolicy,
-			)
-		})
-		if err != nil {
-			return responder.JSON(http.StatusServiceUnavailable, NewErrorResponse("%v", err))
-		}
-
-		if !session.specMatches(spec) {
-			return responder.JSON(http.StatusConflict,
-				NewErrorResponse("exec session %q is already running with different options", sessionID))
-		}
-	}
-
-	wsConn, err := websocket.Accept(ctx.Writer, ctx.Request, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
-	})
-	if err != nil {
-		session.closeIfUnused()
-
-		return responder.Error(err)
-	}
-	defer func() {
-		_ = wsConn.CloseNow()
-	}()
-
-	return controller.serveExecSession(ctx, wsConn, session)
-}
-
-func (controller *Controller) newSSHExecSession(
-	_ *gin.Context,
+func (controller *Controller) newSSHExec(
 	waitContext context.Context,
 	vm *v1.VM,
-	key execSessionKey,
-	spec execSessionSpec,
-	runCommand string,
-	registry *execSessionRegistry,
-	policy execSessionPolicy,
-) (*execSession, error) {
-	sessionContext, sessionContextCancel := context.WithCancel(context.Background())
-
-	type sshExecAttempt struct {
-		exec *sshexec.Exec
-	}
-
-	attempt, err := retry.NewWithData[sshExecAttempt](
+	options sshexec.Options,
+) (*sshexec.Exec, error) {
+	return retry.NewWithData[*sshexec.Exec](
 		retry.Context(waitContext),
 		retry.DelayType(retry.FixedDelay),
 		retry.Delay(time.Second),
 		retry.Attempts(0),
 		retry.LastErrorOnly(true),
-	).Do(func() (sshExecAttempt, error) {
-		exec, err := controller.execSSHClients.newExec(vm.UID, sshexec.Options{
-			Interactive: spec.interactive,
-			TTY:         spec.tty,
-			Rows:        spec.rows,
-			Cols:        spec.cols,
-		}, func() (sshExecClient, error) {
+	).Do(func() (*sshexec.Exec, error) {
+		exec, err := controller.execSSHClients.newExec(vm.UID, options, func() (sshExecClient, error) {
 			portForwardConn, err := controller.portForwardConnection(
 				context.Background(),
 				waitContext,
@@ -227,64 +112,54 @@ func (controller *Controller) newSSHExecSession(
 			return client, nil
 		})
 		if err != nil {
-			return sshExecAttempt{}, fmt.Errorf("failed to establish SSH connection to a VM: %w", err)
+			return nil, fmt.Errorf("failed to establish SSH connection to a VM: %w", err)
 		}
 
-		return sshExecAttempt{
-			exec: exec,
-		}, nil
+		return exec, nil
 	})
-	if err != nil {
-		sessionContextCancel()
-
-		return nil, err
-	}
-
-	return newExecSessionWithContextAndSpec(
-		sessionContext,
-		sessionContextCancel,
-		key,
-		spec,
-		runCommand,
-		attempt.exec,
-		nil,
-		registry,
-		controller.execSessionRetentionTTL,
-		policy,
-	), nil
 }
 
-func (controller *Controller) serveExecSession(
+func (controller *Controller) serveExec(
 	ctx *gin.Context,
 	wsConn *websocket.Conn,
-	session *execSession,
-) responder.Responder {
-	subscriber, err := session.attach()
-	if err != nil {
-		_ = wsConn.Close(websocket.StatusNormalClosure, err.Error())
+	exec *sshexec.Exec,
+	command string,
+) *responder.EmptyResponder {
+	execContext, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		_ = exec.Close()
+	}()
 
-		return responder.Empty()
-	}
-	defer session.detach(subscriber)
-	session.start()
+	// A bounded channel applies backpressure without dropping output. The SSH
+	// runner drains stdout/stderr before sending exit, then we drain this channel.
+	outgoingFrames := make(chan *execstream.Frame, 128)
+	go func() {
+		defer close(outgoingFrames)
+
+		if err := exec.Run(execContext, command, outgoingFrames); err != nil && !errors.Is(err, context.Canceled) {
+			select {
+			case outgoingFrames <- &execstream.Frame{Type: execstream.FrameTypeError, Error: err.Error()}:
+			case <-execContext.Done():
+			}
+		}
+	}()
 
 	readFramesErrCh := make(chan error, 1)
 	go func() {
-		readFramesErrCh <- controller.readExecSessionFrames(ctx, wsConn, session, subscriber)
+		readFramesErrCh <- readExecFrames(ctx, wsConn, exec)
 	}()
 
 	for {
 		select {
 		case readFramesErr := <-readFramesErrCh:
-			if readFramesErr != nil &&
-				!errors.Is(readFramesErr, errExecSessionDetached) &&
-				!errors.Is(readFramesErr, errExecSessionClosed) {
+			if readFramesErr != nil {
 				controller.logger.Warnf("failed to read and process exec frames from WebSocket: %v",
 					readFramesErr)
 			}
 
 			return responder.Empty()
-		case outgoingFrame, ok := <-subscriber.frames:
+		case outgoingFrame, ok := <-outgoingFrames:
 			if !ok {
 				if err := wsConn.Close(websocket.StatusNormalClosure, "Command finished"); err != nil {
 					controller.logger.Warnf("exec: failed to close WebSocket cleanly: %v", err)
@@ -315,20 +190,15 @@ func (controller *Controller) serveExecSession(
 	}
 }
 
-var (
-	errExecSessionDetached = errors.New("exec session detached")
-	errExecSessionClosed   = errors.New("exec session closed")
-)
-
-func parseExecSessionSpec(ctx *gin.Context, command string) (execSessionSpec, string, error) {
+func parseExecOptions(ctx *gin.Context, command string) (sshexec.Options, string, error) {
 	interactive, err := parseExecInteractive(ctx)
 	if err != nil {
-		return execSessionSpec{}, "", err
+		return sshexec.Options{}, "", err
 	}
 
 	tty, err := parseExecBool(ctx, "tty")
 	if err != nil {
-		return execSessionSpec{}, "", err
+		return sshexec.Options{}, "", err
 	}
 	if tty {
 		interactive = true
@@ -336,35 +206,31 @@ func parseExecSessionSpec(ctx *gin.Context, command string) (execSessionSpec, st
 
 	rows, err := parseExecUint32(ctx.Query("rows"), "rows")
 	if err != nil {
-		return execSessionSpec{}, "", err
+		return sshexec.Options{}, "", err
 	}
 	cols, err := parseExecUint32(ctx.Query("cols"), "cols")
 	if err != nil {
-		return execSessionSpec{}, "", err
+		return sshexec.Options{}, "", err
 	}
 	if (rows == 0) != (cols == 0) {
-		return execSessionSpec{}, "", errors.New("\"rows\" and \"cols\" must be provided together")
+		return sshexec.Options{}, "", errors.New("\"rows\" and \"cols\" must be provided together")
 	}
 
-	spec := execSessionSpec{
-		command:     command,
-		interactive: interactive,
-		tty:         tty,
-		rows:        rows,
-		cols:        cols,
-		env:         ctx.QueryMap("env"),
-		workdir:     ctx.Query("workdir"),
+	options := sshexec.Options{
+		Interactive: interactive,
+		TTY:         tty,
+		Rows:        rows,
+		Cols:        cols,
+		Env:         ctx.QueryMap("env"),
+		Workdir:     ctx.Query("workdir"),
 	}
 
-	runCommand, err := sshexec.CommandWithOptions(command, sshexec.Options{
-		Env:     spec.env,
-		Workdir: spec.workdir,
-	})
+	runCommand, err := sshexec.CommandWithOptions(command, options)
 	if err != nil {
-		return execSessionSpec{}, "", err
+		return sshexec.Options{}, "", err
 	}
 
-	return spec, runCommand, nil
+	return options, runCommand, nil
 }
 
 func parseExecInteractive(ctx *gin.Context) (bool, error) {
@@ -425,12 +291,10 @@ func parseExecUint32(raw string, name string) (uint32, error) {
 	return uint32(value), nil
 }
 
-func (controller *Controller) readExecSessionFrames(
-	ctx context.Context,
-	wsConn *websocket.Conn,
-	session *execSession,
-	subscriber *execSessionSubscriber,
-) error {
+func readExecFrames(ctx context.Context, wsConn *websocket.Conn, exec *sshexec.Exec) error {
+	stdin := exec.Stdin()
+	stdinClosed := false
+
 	for {
 		var frame execstream.Frame
 
@@ -438,7 +302,7 @@ func (controller *Controller) readExecSessionFrames(
 		if err != nil {
 			var closeErr websocket.CloseError
 			if errors.As(err, &closeErr) && closeErr.Code == websocket.StatusNormalClosure {
-				return errExecSessionDetached
+				return nil
 			}
 
 			return fmt.Errorf("failed to read next frame from WebSocket: %w", err)
@@ -454,7 +318,18 @@ func (controller *Controller) readExecSessionFrames(
 
 		switch frame.Type {
 		case execstream.FrameTypeStdin:
-			if err := session.writeStdin(frame.Data); err != nil {
+			if stdin == nil || stdinClosed {
+				return fmt.Errorf("failed to handle %q frame: this exec session has no stdin enabled or it is already closed",
+					frame.Type)
+			}
+
+			if len(frame.Data) == 0 {
+				err = stdin.Close()
+				stdinClosed = true
+			} else {
+				_, err = stdin.Write(frame.Data)
+			}
+			if err != nil {
 				return fmt.Errorf("failed to handle %q frame: %w", frame.Type, err)
 			}
 		case execstream.FrameTypeResize:
@@ -462,35 +337,9 @@ func (controller *Controller) readExecSessionFrames(
 				return fmt.Errorf("failed to handle %q frame: terminal size is required", frame.Type)
 			}
 
-			if err := session.resize(frame.Terminal.Rows, frame.Terminal.Cols); err != nil {
+			if err := exec.Resize(frame.Terminal.Rows, frame.Terminal.Cols); err != nil {
 				return fmt.Errorf("failed to handle %q frame: %w", frame.Type, err)
 			}
-		case execstream.FrameTypeHistory:
-			if !session.policy.replayEnabled {
-				return fmt.Errorf("unexpected frame type received: %q", frame.Type)
-			}
-
-			session.sendHistory(subscriber, frame.Watermark)
-		case execstream.FrameTypeAck:
-			if !session.policy.replayEnabled {
-				return fmt.Errorf("unexpected frame type received: %q", frame.Type)
-			}
-
-			session.ack(frame.Watermark)
-		case execstream.FrameTypeDetach:
-			if !session.policy.replayEnabled {
-				return fmt.Errorf("unexpected frame type received: %q", frame.Type)
-			}
-
-			return errExecSessionDetached
-		case execstream.FrameTypeClose:
-			if !session.policy.replayEnabled {
-				return fmt.Errorf("unexpected frame type received: %q", frame.Type)
-			}
-
-			session.close()
-
-			return errExecSessionClosed
 		default:
 			return fmt.Errorf("unexpected frame type received: %q", frame.Type)
 		}

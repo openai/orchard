@@ -56,7 +56,6 @@ type ExecSessionOptions struct {
 	Env         map[string]string
 	Workdir     string
 	WaitSeconds uint16
-	Session     string
 }
 
 func (service *VMsService) Create(ctx context.Context, vm *v1.VM) error {
@@ -224,9 +223,6 @@ func (service *VMsService) ExecSession(
 	}
 	if options.Workdir != "" {
 		params["workdir"] = options.Workdir
-	}
-	if options.Session != "" {
-		params["session"] = options.Session
 	}
 
 	return service.client.wsRequestRaw(ctx, fmt.Sprintf("vms/%s/exec", url.PathEscape(name)),

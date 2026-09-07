@@ -20,7 +20,7 @@ func TestHTTPClientForWebSocketHonorsWait(t *testing.T) {
 	require.Same(t, devClient.httpClient.Transport, httpClient.Transport)
 }
 
-func TestExecSessionBuildsReconnectableQuery(t *testing.T) {
+func TestExecSessionBuildsQuery(t *testing.T) {
 	var query map[string][]string
 
 	server := httptest.NewServer(
@@ -51,7 +51,6 @@ func TestExecSessionBuildsReconnectableQuery(t *testing.T) {
 		Env:         map[string]string{"GREETING": "hello"},
 		Workdir:     "/tmp",
 		WaitSeconds: 7,
-		Session:     "resume-me",
 	})
 	require.NoError(t, err)
 	defer conn.CloseNow()
@@ -64,5 +63,4 @@ func TestExecSessionBuildsReconnectableQuery(t *testing.T) {
 	require.Equal(t, []string{"hello"}, query["env[GREETING]"])
 	require.Equal(t, []string{"/tmp"}, query["workdir"])
 	require.Equal(t, []string{"7"}, query[waitParameterName])
-	require.Equal(t, []string{"resume-me"}, query["session"])
 }
