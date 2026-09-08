@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/cirruslabs/orchard/internal/worker/socketalias"
+	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	guestagent "github.com/cirruslabs/tart-guest-agent/pkg/v1"
+	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -39,7 +41,7 @@ func (vm *VM) shellTartGuestAgent(ctx context.Context, script string, consumeLin
 	if err := stream.Send(&guestagent.ExecRequest{
 		Type: &guestagent.ExecRequest_Command_{
 			Command: &guestagent.ExecRequest_Command{
-				Name:        "/bin/zsh",
+				Name:        lo.Ternary(vm.os == v1.OSDarwin, "/bin/zsh", "/bin/bash"),
 				Args:        []string{"-l"},
 				Interactive: true,
 			},

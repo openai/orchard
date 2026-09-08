@@ -30,6 +30,7 @@ var ErrVMFailed = errors.New("VM failed")
 
 type VM struct {
 	onDiskName ondiskname.OnDiskName
+	os         v1.OS
 
 	// Backward compatibility with v1.VM specification's "Status" field
 	//
@@ -58,6 +59,7 @@ type VM struct {
 func NewVM(vmResource v1.VM, onDiskName ondiskname.OnDiskName, logger *zap.SugaredLogger) *VM {
 	return &VM{
 		onDiskName:    onDiskName,
+		os:            vmResource.OS,
 		conditions:    mapset.NewSet(v1.ConditionTypeCloning),
 		hostProcesses: hostprocess.NewSet(vmResource.Worker, vmResource.Name, onDiskName),
 		endpoints:     endpoint.NewSet(logger),
@@ -314,7 +316,7 @@ func (vm *VM) RunScript(
 			return
 		}
 
-		quotedValue, err := syntax.Quote(value, syntax.LangZsh)
+		quotedValue, err := syntax.Quote(value, lo.Ternary(vm.os == v1.OSDarwin, syntax.LangZsh, syntax.LangBash))
 		if err != nil {
 			vm.SetErr(fmt.Errorf("%w: failed to quote environment variable %q: %v", ErrVMFailed, key, err))
 			return
