@@ -149,8 +149,8 @@ func (vm *VM) Validate() error {
 			return err
 		}
 
-		// We don't support Tart Guest Agent transport on Vetu runtime
-		if vm.StartupScript.Transport == VMScriptTransportTartGuestAgent && vm.Runtime == RuntimeVetu {
+		// Tart Guest Agent transport is only supported on the Tart runtime
+		if vm.StartupScript.Transport == VMScriptTransportTartGuestAgent && vm.Runtime != RuntimeTart {
 			return fmt.Errorf("runtime %q does not support startup script transport %q",
 				vm.Runtime, vm.StartupScript.Transport)
 		}
