@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/cirruslabs/orchard/internal/worker/socketalias"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	guestagent "github.com/cirruslabs/tart-guest-agent/pkg/v1"
@@ -33,7 +34,11 @@ func (vm *VM) shellTartGuestAgent(ctx context.Context, script string, consumeLin
 	}
 	defer conn.Close()
 
-	stream, err := guestagent.NewAgentClient(conn).Exec(ctx, grpc.WaitForReady(true))
+	stream, err := retry.DoWithData(func() (guestagent.Agent_ExecClient, error) {
+		return guestagent.NewAgentClient(conn).Exec(ctx)
+	}, retry.Context(ctx), retry.OnRetry(func(n uint, err error) {
+		consumeLine(fmt.Sprintf("attempt %d to open Tart Guest Agent execution stream failed: %v", n, err))
+	}))
 	if err != nil {
 		return fmt.Errorf("failed to open Tart Guest Agent execution stream: %w", err)
 	}
