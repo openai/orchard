@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/cirruslabs/orchard/internal/proxy"
+	"github.com/cirruslabs/orchard/internal/worker/socketalias"
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/samber/lo"
@@ -48,6 +49,11 @@ func (worker *Worker) handlePortForwardV2(ctx context.Context, portForward *v1.P
 		errorMessage = fmt.Sprintf("port-forwarding failed: %v", err)
 
 		worker.logger.Warn(errorMessage)
+	} else {
+		// Close the target on return or cancellation to unblock pending reads and writes
+		defer vmConn.Close()
+		stopClosing := context.AfterFunc(ctx, func() { _ = vmConn.Close() })
+		defer stopClosing()
 	}
 
 	// Respond
@@ -82,13 +88,14 @@ func (worker *Worker) handlePortForwardV2Inner(
 			return nil, fmt.Errorf("target and legacy fields are mutually exclusive")
 		}
 
-		// Retrieve the typed host process target, it's the only possible target right now
-		if target.HostProcess == nil || target.HostProcess.VMUID == "" || target.HostProcess.Name == "" {
+		switch {
+		case target.TartGuestAgent != nil:
+			return worker.dialTartGuestAgent(ctx, target.TartGuestAgent.VMUID)
+		case target.HostProcess != nil:
+			return worker.dialHostProcess(ctx, target.HostProcess.VMUID, target.HostProcess.Name)
+		default:
 			return nil, fmt.Errorf("invalid or unsupported target")
 		}
-
-		// Dial host process
-		return worker.dialHostProcess(ctx, target.HostProcess.VMUID, target.HostProcess.Name)
 	}
 
 	var host string
@@ -131,6 +138,40 @@ func (worker *Worker) handlePortForwardV2Inner(
 	}
 
 	return vmConn, nil
+}
+
+//nolint:err113,perfsprint // runtime and VM state failures are reported to the port-forward caller
+func (worker *Worker) dialTartGuestAgent(ctx context.Context, vmUID string) (net.Conn, error) {
+	// Validate the VM UID and runtime
+	if vmUID == "" {
+		return nil, fmt.Errorf("invalid Tart Guest Agent target: VM UID is required")
+	}
+
+	if worker.runtime.ID() != v1.RuntimeTart || worker.runtime.Synthetic() {
+		return nil, fmt.Errorf("forwarding to Tart Guest Agent requires the Tart runtime")
+	}
+
+	// Find the running VM
+	vm, err := worker.findVMByUID(vmUID)
+	if err != nil {
+		return nil, err
+	}
+	if !vm.Running() {
+		return nil, fmt.Errorf("VM with UID %q is not running", vmUID)
+	}
+
+	// Connect to Tart Guest Agent through the VM's control socket
+	path, err := vm.OnDiskName().ControlSocketPath()
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := socketalias.DialContext(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Tart Guest Agent: %w", err)
+	}
+
+	return conn, nil
 }
 
 func (worker *Worker) handleGetIPV2(ctx context.Context, resolveIP *v1.ResolveIPAction) {
@@ -192,7 +233,12 @@ func (worker *Worker) findVMByUID(uid string) (vmmanager.VM, error) {
 	return vm, nil
 }
 
+//nolint:err113,perfsprint // Use descriptive errors for host process validation
 func (worker *Worker) dialHostProcess(ctx context.Context, vmUID string, name string) (net.Conn, error) {
+	if vmUID == "" || name == "" {
+		return nil, fmt.Errorf("invalid host process target: VM UID and name are required")
+	}
+
 	vm, err := worker.findVMByUID(vmUID)
 	if err != nil {
 		return nil, err

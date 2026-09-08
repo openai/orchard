@@ -27,8 +27,14 @@ message WatchInstruction {
         string name = 2;
       }
 
+      // Forward the byte stream to the Tart Guest Agent running inside the VM
+      message TartGuestAgent {
+        string vm_uid = 1;
+      }
+
       oneof value {
         HostProcess host_process = 1;
+        TartGuestAgent tart_guest_agent = 2;
       }
     }
 
@@ -40,7 +46,7 @@ message WatchInstruction {
     uint32 port = 3;
 
     // Typed alternative to the legacy port-forwarding destination,
-    // adding support for host processes
+    // adding support for host processes and Tart Guest Agent
     Target target = 4;
   }
   message SyncVMs {

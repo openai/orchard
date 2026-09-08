@@ -83,6 +83,9 @@ linters:
     # Avoid unrelated style churn for now
     - funcorder
 
+    # It's OK to have dynamic errors since we're not a library
+    - err113
+
 issues:
   # Don't hide multiple issues that belong to one class since GitHub annotations can handle them all nicely.
   max-issues-per-linter: 0

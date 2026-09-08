@@ -212,6 +212,7 @@ func (controller *Controller) newSSHExecSession(
 				vm.UID,
 				22,
 				"",
+				"",
 			)
 			if err != nil {
 				return nil, err

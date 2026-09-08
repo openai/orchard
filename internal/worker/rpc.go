@@ -67,7 +67,7 @@ func (worker *Worker) watchRPC(ctx context.Context, operationCtx context.Context
 	}
 }
 
-//nolint:nestif,protogetter // Preserve the original host-process forwarding implementation.
+//nolint:nestif,protogetter // Preserve the original forwarding implementation.
 func (worker *Worker) handlePortForward(
 	ctx context.Context,
 	client rpc.ControllerClient,
@@ -98,17 +98,18 @@ func (worker *Worker) handlePortForward(
 			return
 		}
 
-		// Retrieve the typed host process target, it's the only possible target right now
-		hostProcess := target.GetHostProcess()
-		if hostProcess == nil || hostProcess.VmUid == "" || hostProcess.Name == "" {
+		switch {
+		case target.GetTartGuestAgent() != nil:
+			targetConn, err = worker.dialTartGuestAgent(subCtx, target.GetTartGuestAgent().VmUid)
+		case target.GetHostProcess() != nil:
+			targetConn, err = worker.dialHostProcess(subCtx, target.GetHostProcess().VmUid,
+				target.GetHostProcess().Name)
+		default:
 			worker.logger.Warn("port forwarding failed: invalid or unsupported target")
 			return
 		}
-
-		// Dial host process
-		targetConn, err = worker.dialHostProcess(ctx, hostProcess.VmUid, hostProcess.Name)
 		if err != nil {
-			worker.logger.Warnf("port forwarding failed: failed to connect to host process: %v", err)
+			worker.logger.Warnf("port forwarding failed: %v", err)
 			return
 		}
 	} else {
@@ -154,6 +155,11 @@ func (worker *Worker) handlePortForward(
 			return
 		}
 	}
+
+	// Close the target on return or cancellation to unblock pending reads and writes
+	defer targetConn.Close()
+	stopClosing := context.AfterFunc(subCtx, func() { _ = targetConn.Close() })
+	defer stopClosing()
 
 	// Proxy bytes
 	grpcConn := &grpc_net_conn.Conn{

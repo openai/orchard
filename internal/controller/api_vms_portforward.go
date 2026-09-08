@@ -13,6 +13,7 @@ import (
 	"github.com/cirruslabs/orchard/internal/netconncancel"
 	"github.com/cirruslabs/orchard/internal/proxy"
 	"github.com/cirruslabs/orchard/internal/responder"
+	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/cirruslabs/orchard/rpc"
 	"github.com/coder/websocket"
@@ -27,15 +28,27 @@ import (
 var errPortForwardRequest = errors.New("failed to request port forwarding")
 
 func (controller *Controller) portForwardVM(ctx *gin.Context) responder.Responder {
-	if responder := controller.authorizeAny(ctx, v1.ServiceAccountRoleComputeWrite,
-		v1.ServiceAccountRoleComputeConnect); responder != nil {
-		return responder
-	}
-
 	// Retrieve and parse path and query parameters
 	name := ctx.Param("name")
 	portRaw := ctx.Query("port")
 	hostProcess := ctx.Query("hostProcess")
+	target := client.PortForwardTarget(ctx.Query("target"))
+	if target != "" {
+		if err := target.Validate(); err != nil {
+			return responder.JSON(http.StatusBadRequest, NewErrorResponse("%v", err))
+		}
+		if portRaw != "" || hostProcess != "" {
+			return responder.JSON(http.StatusBadRequest,
+				NewErrorResponse("target cannot be combined with port or hostProcess"))
+		}
+		if responder := controller.authorizeAny(ctx, v1.ServiceAccountRoleComputeWrite,
+			v1.ServiceAccountRoleComputeConnectTartGuestAgent); responder != nil {
+			return responder
+		}
+	} else if responder := controller.authorizeAny(ctx, v1.ServiceAccountRoleComputeWrite,
+		v1.ServiceAccountRoleComputeConnect); responder != nil {
+		return responder
+	}
 
 	// Host process connections require an additional role
 	var port uint64
@@ -51,7 +64,7 @@ func (controller *Controller) portForwardVM(ctx *gin.Context) responder.Responde
 		if portRaw != "" {
 			return responder.Code(http.StatusBadRequest)
 		}
-	} else {
+	} else if target == "" {
 		// VM port forwarding requires a valid non-zero TCP port
 		port, err = strconv.ParseUint(portRaw, 10, 16)
 		if err != nil || port < 1 || port > 65535 {
@@ -83,7 +96,7 @@ func (controller *Controller) portForwardVM(ctx *gin.Context) responder.Responde
 	}
 
 	// Commence port forwarding
-	return controller.portForward(ctx, waitContext, vm.Worker, vm.UID, uint32(port), hostProcess)
+	return controller.portForward(ctx, waitContext, vm.Worker, vm.UID, uint32(port), hostProcess, target)
 }
 
 func (controller *Controller) portForward(
@@ -93,6 +106,7 @@ func (controller *Controller) portForward(
 	vmUID string,
 	port uint32,
 	hostProcess string,
+	target client.PortForwardTarget,
 ) responder.Responder {
 	// Request and wait for a connection with a worker
 	rendezvousConn, err := retry.NewWithData[net.Conn](
@@ -102,7 +116,7 @@ func (controller *Controller) portForward(
 		retry.Attempts(0),
 		retry.LastErrorOnly(true),
 	).Do(func() (net.Conn, error) {
-		return controller.portForwardConnection(ctx, notifyContext, workerName, vmUID, port, hostProcess)
+		return controller.portForwardConnection(ctx, notifyContext, workerName, vmUID, port, hostProcess, target)
 	})
 	if err != nil {
 		if errors.Is(err, errPortForwardRequest) {
@@ -226,6 +240,7 @@ func (controller *Controller) portForwardConnection(
 	vmUID string,
 	port uint32,
 	hostProcess string,
+	target client.PortForwardTarget,
 ) (net.Conn, error) {
 	// Create a rendezvous connection point
 	rendezvousCtx, rendezvousCtxCancel := context.WithCancel(ctx)
@@ -249,6 +264,12 @@ func (controller *Controller) portForwardConnection(
 					VmUid: vmUID,
 					Name:  hostProcess,
 				},
+			},
+		}
+	} else if target == client.PortForwardTargetTartGuestAgent {
+		portForwardAction.Target = &rpc.WatchInstruction_PortForward_Target{
+			Value: &rpc.WatchInstruction_PortForward_Target_TartGuestAgent_{
+				TartGuestAgent: &rpc.WatchInstruction_PortForward_Target_TartGuestAgent{VmUid: vmUID},
 			},
 		}
 	} else {
