@@ -38,6 +38,7 @@ var labels map[string]string
 var randomSerial bool
 var restartPolicy string
 var startupScript string
+var startupScriptTransport string
 var hostDirsRaw []string
 var imagePullPolicy string
 
@@ -93,6 +94,9 @@ func newCreateVMCommand() *cobra.Command {
 	command.Flags().StringVar(&startupScript, "startup-script", "",
 		"startup script (e.g. --startup-script=\"sync\") or a path to a script file prefixed with \"@\" "+
 			"(e.g. \"--startup-script=@script.sh\")")
+	command.Flags().StringVar(&startupScriptTransport, "startup-script-transport", string(v1.VMScriptTransportSSH),
+		fmt.Sprintf("transport for the startup script: %q or %q (Tart only)",
+			v1.VMScriptTransportSSH, v1.VMScriptTransportTartGuestAgent))
 	command.Flags().StringSliceVar(&hostDirsRaw, "host-dirs", []string{},
 		"directories on the Orchard Worker host to mount to a VM, can be specified multiple times "+
 			"and/or be comma-separated (see \"tart run\"'s --dir argument for syntax)")
@@ -169,10 +173,6 @@ func runCreateVM(cmd *cobra.Command, args []string) error {
 		HostDirs:     hostDirs,
 	}
 
-	if err := vm.Validate(); err != nil {
-		return fmt.Errorf("%w: %v", ErrVMFailed, err)
-	}
-
 	// Convert resources
 	vm.Resources, err = v1.NewResourcesFromStringToString(resources)
 	if err != nil {
@@ -202,11 +202,17 @@ func runCreateVM(cmd *cobra.Command, args []string) error {
 
 		vm.StartupScript = &v1.VMScript{
 			ScriptContent: string(startupScriptBytes),
+			Transport:     v1.VMScriptTransport(startupScriptTransport),
 		}
 	} else if startupScript != "" {
 		vm.StartupScript = &v1.VMScript{
 			ScriptContent: startupScript,
+			Transport:     v1.VMScriptTransport(startupScriptTransport),
 		}
+	}
+
+	if err := vm.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrVMFailed, err)
 	}
 
 	client, err := client.New()

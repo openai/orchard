@@ -144,6 +144,18 @@ func (vm *VM) IsScheduled() bool {
 }
 
 func (vm *VM) Validate() error {
+	if vm.StartupScript != nil {
+		if err := vm.StartupScript.Transport.Validate(); err != nil {
+			return err
+		}
+
+		// We don't support Tart Guest Agent transport on Vetu runtime
+		if vm.StartupScript.Transport == VMScriptTransportTartGuestAgent && vm.Runtime == RuntimeVetu {
+			return fmt.Errorf("runtime %q does not support startup script transport %q",
+				vm.Runtime, vm.StartupScript.Transport)
+		}
+	}
+
 	unsupportedFieldError := func(field string) error {
 		return fmt.Errorf("runtime %q does not support field %q", vm.Runtime, field)
 	}
@@ -381,6 +393,25 @@ const (
 type VMScript struct {
 	ScriptContent string            `json:"script_content,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
+
+	// Transport defaults to SSH when omitted.
+	Transport VMScriptTransport `json:"transport,omitempty"`
+}
+
+type VMScriptTransport string
+
+const (
+	VMScriptTransportSSH            VMScriptTransport = "ssh"
+	VMScriptTransportTartGuestAgent VMScriptTransport = "tart-guest-agent"
+)
+
+func (transport VMScriptTransport) Validate() error {
+	switch transport {
+	case "", VMScriptTransportSSH, VMScriptTransportTartGuestAgent:
+		return nil
+	default:
+		return fmt.Errorf("unsupported startup script transport %q", transport)
+	}
 }
 
 func (vm VM) TerminalState() bool {

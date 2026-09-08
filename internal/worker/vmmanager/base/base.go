@@ -28,6 +28,8 @@ import (
 var ErrVMFailed = errors.New("VM failed")
 
 type VM struct {
+	onDiskName ondiskname.OnDiskName
+
 	// Backward compatibility with v1.VM specification's "Status" field
 	//
 	// "started" is always true after the first "tart run",
@@ -54,6 +56,7 @@ type VM struct {
 
 func NewVM(vmResource v1.VM, onDiskName ondiskname.OnDiskName, logger *zap.SugaredLogger) *VM {
 	return &VM{
+		onDiskName:    onDiskName,
 		conditions:    mapset.NewSet(v1.ConditionTypeCloning),
 		hostProcesses: hostprocess.NewSet(vmResource.Worker, vmResource.Name, onDiskName),
 		endpoints:     endpoint.NewSet(logger),
@@ -312,7 +315,14 @@ func (vm *VM) RunScript(
 		})
 	}
 
-	err := vm.Shell(ctx, sshUser, sshPassword, script.ScriptContent, script.Env, consumeLine, dialer, getIP)
+	var err error
+
+	switch script.Transport {
+	case v1.VMScriptTransportTartGuestAgent:
+		err = vm.shellTartGuestAgent(ctx, script, consumeLine)
+	default:
+		err = vm.Shell(ctx, sshUser, sshPassword, script.ScriptContent, script.Env, consumeLine, dialer, getIP)
+	}
 	if err != nil {
 		vm.SetErr(fmt.Errorf("%w: failed to run startup script: %v", ErrVMFailed, err))
 	}
