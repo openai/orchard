@@ -23,6 +23,7 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 var ErrVMFailed = errors.New("VM failed")
@@ -308,7 +309,18 @@ func (vm *VM) RunScript(
 
 	scriptBuilder.WriteString("set -e\n")
 	for key, value := range script.Env {
-		scriptBuilder.WriteString("export " + key + "=\"" + value + "\"\n")
+		if !syntax.ValidName(key) {
+			vm.SetErr(fmt.Errorf("%w: invalid environment variable name %q", ErrVMFailed, key))
+			return
+		}
+
+		quotedValue, err := syntax.Quote(value, syntax.LangZsh)
+		if err != nil {
+			vm.SetErr(fmt.Errorf("%w: failed to quote environment variable %q: %v", ErrVMFailed, key, err))
+			return
+		}
+
+		scriptBuilder.WriteString("export " + key + "=" + quotedValue + "\n")
 	}
 	scriptBuilder.WriteString(script.ScriptContent)
 	scriptBuilder.WriteString("\nexit\n")
