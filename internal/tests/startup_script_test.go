@@ -10,6 +10,7 @@ import (
 	"github.com/cirruslabs/orchard/internal/tests/platformdependent"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/google/uuid"
+	"github.com/lithammer/dedent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,8 +26,11 @@ func TestTartGuestAgentStartupScript(t *testing.T) {
 	vm.Password = "invalid-ssh-password"
 	vm.StartupScript = &v1.VMScript{
 		Transport: v1.VMScriptTransportTartGuestAgent,
-		ScriptContent: "printf 'Hello, %s!\\n' \"$FOO\"\n" +
-			"printf 'startup stderr\\n' >&2\nexit 123",
+		ScriptContent: dedent.Dedent(`
+			printf 'Hello, %s!\n' "$FOO"
+			printf 'startup stderr\n' >&2
+			exit 123
+		`),
 		Env: map[string]string{"FOO": "Tart Guest Agent"},
 	}
 	require.NoError(t, devClient.VMs().Create(t.Context(), vm))
