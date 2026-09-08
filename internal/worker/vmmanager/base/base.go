@@ -168,7 +168,6 @@ func (vm *VM) Shell(
 	sshUser string,
 	sshPassword string,
 	script string,
-	env map[string]string,
 	consumeLine func(line string),
 	dialer dialer.Dialer,
 	getIP func(ctx context.Context) (string, error),
@@ -268,17 +267,7 @@ func (vm *VM) Shell(
 		return fmt.Errorf("%w: failed to start a shell: %v", ErrVMFailed, err)
 	}
 
-	var scriptBuilder strings.Builder
-
-	scriptBuilder.WriteString("set -e\n")
-	// don't use sess.Setenv since it requires non-default SSH server configuration
-	for key, value := range env {
-		scriptBuilder.WriteString("export " + key + "=\"" + value + "\"\n")
-	}
-	scriptBuilder.WriteString(script)
-	scriptBuilder.WriteString("\nexit\n")
-
-	_, err = stdinBuf.Write([]byte(scriptBuilder.String()))
+	_, err = stdinBuf.Write([]byte(script))
 	if err != nil {
 		return fmt.Errorf("%w: failed to start script: %v", ErrVMFailed, err)
 	}
@@ -315,13 +304,22 @@ func (vm *VM) RunScript(
 		})
 	}
 
+	var scriptBuilder strings.Builder
+
+	scriptBuilder.WriteString("set -e\n")
+	for key, value := range script.Env {
+		scriptBuilder.WriteString("export " + key + "=\"" + value + "\"\n")
+	}
+	scriptBuilder.WriteString(script.ScriptContent)
+	scriptBuilder.WriteString("\nexit\n")
+
 	var err error
 
 	switch script.Transport {
 	case v1.VMScriptTransportTartGuestAgent:
-		err = vm.shellTartGuestAgent(ctx, script, consumeLine)
+		err = vm.shellTartGuestAgent(ctx, scriptBuilder.String(), consumeLine)
 	default:
-		err = vm.Shell(ctx, sshUser, sshPassword, script.ScriptContent, script.Env, consumeLine, dialer, getIP)
+		err = vm.Shell(ctx, sshUser, sshPassword, scriptBuilder.String(), consumeLine, dialer, getIP)
 	}
 	if err != nil {
 		vm.SetErr(fmt.Errorf("%w: failed to run startup script: %v", ErrVMFailed, err))

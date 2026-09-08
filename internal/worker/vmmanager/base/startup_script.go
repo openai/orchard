@@ -8,13 +8,12 @@ import (
 	"strings"
 
 	"github.com/cirruslabs/orchard/internal/worker/socketalias"
-	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	guestagent "github.com/cirruslabs/tart-guest-agent/pkg/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func (vm *VM) shellTartGuestAgent(ctx context.Context, script *v1.VMScript, consumeLine func(string)) error {
+func (vm *VM) shellTartGuestAgent(ctx context.Context, script string, consumeLine func(string)) error {
 	path, err := vm.onDiskName.ControlSocketPath()
 	if err != nil {
 		return err
@@ -36,21 +35,36 @@ func (vm *VM) shellTartGuestAgent(ctx context.Context, script *v1.VMScript, cons
 		return fmt.Errorf("failed to open Tart Guest Agent execution stream: %w", err)
 	}
 
+	// Start the shell process
 	if err := stream.Send(&guestagent.ExecRequest{
 		Type: &guestagent.ExecRequest_Command_{
 			Command: &guestagent.ExecRequest_Command{
-				Name: "/bin/zsh",
-				Args: []string{"-ec", script.ScriptContent},
-				Env:  script.Env,
+				Name:        "/bin/zsh",
+				Args:        []string{"-l"},
+				Interactive: true,
 			},
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to send Tart Guest Agent command: %w", err)
 	}
+
+	// Feed it our startup script
+	if err := stream.Send(&guestagent.ExecRequest{
+		Type: &guestagent.ExecRequest_StandardInput{
+			StandardInput: &guestagent.IOChunk{
+				Data: []byte(script),
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to send Tart Guest Agent script: %w", err)
+	}
+
 	if err := stream.CloseSend(); err != nil {
 		return err
 	}
 
+	// Wait for the shell process to finish,
+	// retrieving its outputs and exit code
 	stdout := scriptOutput{consumeLine: consumeLine}
 	stderr := scriptOutput{consumeLine: consumeLine}
 	defer func() {
