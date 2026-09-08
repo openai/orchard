@@ -74,6 +74,12 @@ func (controller *Controller) rpcWatch(ctx *gin.Context) responder.Responder {
 							Name:  hostProcess.Name,
 						}
 					}
+
+					if tartGuestAgent := target.GetTartGuestAgent(); tartGuestAgent != nil {
+						watchInstruction.PortForwardAction.Target.TartGuestAgent = &v1.PortForwardTargetTartGuestAgent{
+							VMUID: tartGuestAgent.VmUid,
+						}
+					}
 				} else {
 					watchInstruction.PortForwardAction.VMUID = typedAction.PortForwardAction.VmUid
 					watchInstruction.PortForwardAction.Port = uint16(typedAction.PortForwardAction.Port)

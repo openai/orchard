@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/cirruslabs/orchard/internal/worker/socketalias"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 )
 
@@ -45,7 +46,7 @@ func NewProcess(
 
 	// Route the Tart control socket through the runtime directory as well
 	// to work around macOS's 104-byte Unix-domain socket limit
-	controlSocket, err = shortenControlSocketPath(runtimeDir, controlSocket)
+	controlSocket, err = socketalias.Create(runtimeDir, controlSocket)
 	if err != nil {
 		return nil, errors.Join(err, os.RemoveAll(runtimeDir))
 	}
@@ -106,24 +107,6 @@ func NewProcess(
 	}()
 
 	return process, nil
-}
-
-func shortenControlSocketPath(runtimeDir string, controlSocketPath string) (string, error) {
-	// Make the symlink target absolute because a relative TART_HOME would
-	// otherwise be resolved from runtimeDir, breaking the symlink
-	absoluteControlSocketPath, err := filepath.Abs(controlSocketPath)
-	if err != nil {
-		return "", err
-	}
-
-	// Place the VM's control socket alias in the runtime directory
-	aliasControlSocketPath := filepath.Join(runtimeDir, "vm.sock")
-
-	if err := os.Symlink(absoluteControlSocketPath, aliasControlSocketPath); err != nil {
-		return "", err
-	}
-
-	return aliasControlSocketPath, nil
 }
 
 func (process *Process) Dial(ctx context.Context) (net.Conn, error) {

@@ -13,6 +13,21 @@ import (
 	"github.com/coder/websocket"
 )
 
+type PortForwardTarget string
+
+const (
+	PortForwardTargetTartGuestAgent PortForwardTarget = "tart-guest-agent"
+)
+
+func (target PortForwardTarget) Validate() error {
+	switch target {
+	case PortForwardTargetTartGuestAgent:
+		return nil
+	default:
+		return fmt.Errorf("unsupported port-forward target %q", target)
+	}
+}
+
 type VMsService struct {
 	client *Client
 }
@@ -179,6 +194,19 @@ func (service *VMsService) PortForwardHostProcess(
 		map[string]string{
 			"hostProcess": hostProcessName,
 			"wait":        strconv.FormatUint(uint64(waitSeconds), 10),
+		})
+}
+
+func (service *VMsService) PortForwardTarget(
+	ctx context.Context,
+	name string,
+	target PortForwardTarget,
+	waitSeconds uint16,
+) (net.Conn, error) {
+	return service.client.wsRequest(ctx, fmt.Sprintf("vms/%s/port-forward", url.PathEscape(name)),
+		map[string]string{
+			"target": string(target),
+			"wait":   strconv.FormatUint(uint64(waitSeconds), 10),
 		})
 }
 

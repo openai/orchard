@@ -380,12 +380,17 @@ paths:
           type: string
     get:
       summary: "Port-forward to a VM using WebSocket protocol"
+      description: |
+        Connect to a VM's TCP port, a declared host process, or its Tart Guest Agent.
+        Specify exactly one of `port`, `hostProcess`, or `target=tart-guest-agent`.
+
+        Connecting to Tart Guest Agent requires either the `compute:write` or `compute:connect:tart-guest-agent` role.
       tags:
         - vms
       parameters:
         - in: query
           name: port
-          description: VM's TCP port number to connect to
+          description: VM's TCP port number to connect to; mutually exclusive with `hostProcess` and `target`.
           schema:
             type: integer
             minimum: 1
@@ -393,9 +398,16 @@ paths:
           required: false
         - in: query
           name: hostProcess
-          description: Name of a host process declared in the VM's `hostProcesses` field; mutually exclusive with `port`.
+          description: Name of a host process declared in the VM's `hostProcesses` field; mutually exclusive with `port` and `target`.
           schema:
             type: string
+          required: false
+        - in: query
+          name: target
+          description: Forward to the specified target; mutually exclusive with `port` and `hostProcess`.
+          schema:
+            type: string
+            enum: [tart-guest-agent]
           required: false
         - in: query
           name: wait
@@ -420,7 +432,7 @@ paths:
             type: string
       responses:
         '400':
-          description: Invalid or ambiguous port-forward target specified
+          description: Invalid query parameter or ambiguous port-forward target specified
         '404':
           description: VM or requested host process doesn't exist
         '503':

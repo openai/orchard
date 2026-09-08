@@ -15,12 +15,17 @@ type PortForwardAction struct {
 }
 
 type PortForwardTarget struct {
-	HostProcess *PortForwardTargetHostProcess `json:"hostProcess,omitempty"`
+	HostProcess    *PortForwardTargetHostProcess    `json:"hostProcess,omitempty"`
+	TartGuestAgent *PortForwardTargetTartGuestAgent `json:"tartGuestAgent,omitempty"`
 }
 
 type PortForwardTargetHostProcess struct {
 	VMUID string `json:"vmUID"`
 	Name  string `json:"name"`
+}
+
+type PortForwardTargetTartGuestAgent struct {
+	VMUID string `json:"vmUID"`
 }
 
 type SyncVMsAction struct {
