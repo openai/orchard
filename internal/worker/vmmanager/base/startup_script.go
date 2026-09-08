@@ -1,15 +1,16 @@
 package base
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/cirruslabs/orchard/internal/worker/socketalias"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	guestagent "github.com/cirruslabs/tart-guest-agent/pkg/v1"
+	"github.com/dustin/go-humanize"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -67,8 +68,8 @@ func (vm *VM) shellTartGuestAgent(ctx context.Context, script string, consumeLin
 
 	// Wait for the shell process to finish,
 	// retrieving its outputs and exit code
-	stdout := scriptOutput{consumeLine: consumeLine}
-	stderr := scriptOutput{consumeLine: consumeLine}
+	stdout := newScriptOutput(consumeLine)
+	stderr := newScriptOutput(consumeLine)
 	defer func() {
 		stdout.flush()
 		stderr.flush()
@@ -95,29 +96,59 @@ func (vm *VM) shellTartGuestAgent(ctx context.Context, script string, consumeLin
 	}
 }
 
-// Buffer partial lines across output chunks
+const (
+	scriptOutputBufferSize = 128 * humanize.KiByte
+)
+
 type scriptOutput struct {
 	consumeLine func(string)
-	pending     []byte
+	pending     *bytes.Buffer
+	stopped     bool
 }
 
-func (output *scriptOutput) write(data []byte) {
-	output.pending = append(output.pending, data...)
-
-	for {
-		line, rest, found := bytes.Cut(output.pending, []byte{'\n'})
-		if !found {
-			return
-		}
-
-		output.consumeLine(strings.TrimSuffix(string(line), "\r"))
-		output.pending = rest
+func newScriptOutput(consumeLine func(string)) *scriptOutput {
+	return &scriptOutput{
+		consumeLine: consumeLine,
+		pending:     bytes.NewBuffer(make([]byte, 0, scriptOutputBufferSize)),
 	}
 }
 
+func (output *scriptOutput) write(data []byte) {
+	if output.stopped {
+		return
+	}
+
+	for len(data) > 0 {
+		// Determine if we have a full line available in the incoming data
+		advance, _, _ := bufio.ScanLines(data, false)
+
+		if advance == 0 {
+			// No newline yet; buffer the remainder
+			output.pending.Write(data)
+
+			break
+		}
+
+		// Complete the pending line and emit it
+		output.pending.Write(data[:advance])
+		output.flush()
+
+		// Update slice to point to the next data chunk
+		data = data[advance:]
+	}
+
+	output.stopped = output.pending.Len() >= scriptOutputBufferSize
+}
+
 func (output *scriptOutput) flush() {
-	if len(output.pending) != 0 {
-		output.consumeLine(strings.TrimSuffix(string(output.pending), "\r"))
-		output.pending = nil
+	defer output.pending.Reset()
+
+	if output.stopped {
+		return
+	}
+
+	_, line, _ := bufio.ScanLines(output.pending.Bytes(), true)
+	if line != nil {
+		output.consumeLine(string(line))
 	}
 }
