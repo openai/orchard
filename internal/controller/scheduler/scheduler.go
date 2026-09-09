@@ -275,13 +275,21 @@ NextVM:
 				worker.SchedulingPaused ||
 				!compatibleArchAndRuntime(unscheduledVM, worker) ||
 				!resourcesRemaining.CanFit(unscheduledVM.Resources) ||
-				!worker.Labels.Contains(unscheduledVM.Labels) {
+				!worker.Labels.Contains(unscheduledVM.Labels) ||
+				workerInfos.PortConflict(worker.Name, unscheduledVM) {
 				continue NextWorker
 			}
 
 			// Don't schedule VMs with endpoints on workers that don't support them
 			if len(unscheduledVM.Endpoints) != 0 &&
 				!worker.Capabilities.Has(v1.WorkerCapabilityVMEndpoints) {
+				continue NextWorker
+			}
+
+			// An older worker drops the exposed ports it knows nothing about and
+			// starts the VM without them, so wait for one that can honour them
+			if len(unscheduledVM.NetSoftnetExpose) != 0 &&
+				!worker.Capabilities.Has(v1.WorkerCapabilityVMExposedPorts) {
 				continue NextWorker
 			}
 
@@ -346,10 +354,29 @@ NextVM:
 					return ErrWorkerSchedulingSkipped
 				}
 
+				if len(unscheduledVM.NetSoftnetExpose) != 0 &&
+					!currentWorker.Capabilities.Has(v1.WorkerCapabilityVMExposedPorts) {
+					return ErrWorkerSchedulingSkipped
+				}
+
 				if currentWorker.MachineID != worker.MachineID ||
 					!currentWorker.Resources.Equal(worker.Resources) {
 					// Worker has changed
 					return ErrWorkerSchedulingSkipped
+				}
+
+				if len(unscheduledVM.NetSoftnetExpose) != 0 || len(unscheduledVM.Endpoints) != 0 {
+					// A specification update may have exposed one of the ports
+					// on this worker since the lagging view was built, so repeat
+					// the check on the VMs as this transaction sees them
+					currentVMs, err := txn.ListVMs()
+					if err != nil {
+						return err
+					}
+
+					if WorkerPortConflict(currentVMs, worker.Name, unscheduledVM.Name, unscheduledVM) {
+						return ErrWorkerSchedulingSkipped
+					}
 				}
 
 				unscheduledVM.Worker = worker.Name
@@ -402,7 +429,7 @@ NextVM:
 			}
 
 			// Update lagging resource usage
-			workerInfos.AddVM(worker.Name, unscheduledVM.Resources)
+			workerInfos.AddVM(worker.Name, unscheduledVM)
 
 			// Ping the worker afterward for faster VM execution
 			affectedWorkers.Add(worker.Name)
@@ -437,7 +464,7 @@ func ProcessVMs(vms []v1.VM) ([]v1.VM, WorkerInfos) {
 
 	for _, vm := range vms {
 		if vm.IsScheduled() {
-			workerToResources.AddVM(vm.Worker, vm.Resources)
+			workerToResources.AddVM(vm.Worker, vm)
 		} else {
 			unscheduledVMs = append(unscheduledVMs, vm)
 		}

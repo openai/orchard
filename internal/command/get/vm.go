@@ -95,6 +95,7 @@ func runGetVM(cmd *cobra.Command, args []string) error {
 	table.AddRow("Softnet enabled", vm.NetSoftnetDeprecated || vm.NetSoftnet)
 	table.AddRow("Softnet allowed CIDRs", strings.Join(vm.NetSoftnetAllow, "\n"))
 	table.AddRow("Softnet blocked CIDRs", strings.Join(vm.NetSoftnetBlock, "\n"))
+	table.AddRow("Softnet exposed ports", strings.Join(vm.NetSoftnetExpose, "\n"))
 	table.AddRow("Bridged networking interface", nonEmptyOrNone(vm.NetBridged))
 	table.AddRow("Headless mode", vm.Headless)
 	table.AddRow("Nested virtualization", vm.Nested)
