@@ -430,7 +430,6 @@ NextVM:
 
 	return len(workers), len(vms), nil
 }
-
 func ProcessVMs(vms []v1.VM) ([]v1.VM, WorkerInfos) {
 	var unscheduledVMs []v1.VM
 	workerToResources := make(WorkerInfos)
