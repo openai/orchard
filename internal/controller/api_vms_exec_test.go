@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/cirruslabs/orchard/internal/controller/sshexec"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -66,26 +67,25 @@ func TestParseExecInteractive(t *testing.T) {
 	}
 }
 
-func TestParseExecSessionSpec(t *testing.T) {
-	spec, runCommand, err := parseExecSessionSpec(
+func TestParseExecOptions(t *testing.T) {
+	options, runCommand, err := parseExecOptions(
 		execQueryContext("interactive=true&tty=true&rows=24&cols=80&env[GREETING]=hello&workdir=/tmp"),
 		"printf '%s' \"$GREETING\"",
 	)
 	require.NoError(t, err)
-	require.Equal(t, execSessionSpec{
-		command:     "printf '%s' \"$GREETING\"",
-		interactive: true,
-		tty:         true,
-		rows:        24,
-		cols:        80,
-		env:         map[string]string{"GREETING": "hello"},
-		workdir:     "/tmp",
-	}, spec)
+	require.Equal(t, sshexec.Options{
+		Interactive: true,
+		TTY:         true,
+		Rows:        24,
+		Cols:        80,
+		Env:         map[string]string{"GREETING": "hello"},
+		Workdir:     "/tmp",
+	}, options)
 	require.Equal(t, "cd '/tmp' || exit $?\nexport GREETING='hello'\nprintf '%s' \"$GREETING\"", runCommand)
 }
 
-func TestParseExecSessionSpecRejectsPartialTTYSize(t *testing.T) {
-	_, _, err := parseExecSessionSpec(execQueryContext("tty=true&rows=24"), "echo hello")
+func TestParseExecOptionsRejectsPartialTTYSize(t *testing.T) {
+	_, _, err := parseExecOptions(execQueryContext("tty=true&rows=24"), "echo hello")
 	require.ErrorContains(t, err, "provided together")
 }
 

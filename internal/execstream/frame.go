@@ -10,26 +10,20 @@ import (
 type FrameType string
 
 const (
-	FrameTypeStdin         FrameType = "stdin"
-	FrameTypeResize        FrameType = "resize"
-	FrameTypeStdout        FrameType = "stdout"
-	FrameTypeStderr        FrameType = "stderr"
-	FrameTypeExit          FrameType = "exit"
-	FrameTypeError         FrameType = "error"
-	FrameTypeHistory       FrameType = "history"
-	FrameTypeNoMoreHistory FrameType = "no_more_history"
-	FrameTypeAck           FrameType = "ack"
-	FrameTypeDetach        FrameType = "detach"
-	FrameTypeClose         FrameType = "close"
+	FrameTypeStdin  FrameType = "stdin"
+	FrameTypeResize FrameType = "resize"
+	FrameTypeStdout FrameType = "stdout"
+	FrameTypeStderr FrameType = "stderr"
+	FrameTypeExit   FrameType = "exit"
+	FrameTypeError  FrameType = "error"
 )
 
 type Frame struct {
-	Type      FrameType     `json:"type"`
-	Data      []byte        `json:"data,omitempty"`
-	Terminal  *TerminalSize `json:"terminal,omitempty"`
-	Exit      *Exit         `json:"exit,omitempty"`
-	Error     string        `json:"error,omitempty"`
-	Watermark uint64        `json:"watermark,omitempty"`
+	Type     FrameType     `json:"type"`
+	Data     []byte        `json:"data,omitempty"`
+	Terminal *TerminalSize `json:"terminal,omitempty"`
+	Exit     *Exit         `json:"exit,omitempty"`
+	Error    string        `json:"error,omitempty"`
 }
 
 type Exit struct {

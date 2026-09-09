@@ -56,7 +56,6 @@ type Controller struct {
 	ipRendezvous                       *rendezvous.Rendezvous[rendezvous.ResultWithErrorMessage[string]]
 	enableSwaggerDocs                  bool
 	workerOfflineTimeout               time.Duration
-	execSessionRetentionTTL            time.Duration
 	execSSHConnectionKeepaliveInterval time.Duration
 	experimentalRPCV2                  bool
 	disableDBCompression               bool
@@ -67,7 +66,6 @@ type Controller struct {
 	sshSigner       ssh.Signer
 	sshNoClientAuth bool
 	sshServer       *sshserver.SSHServer
-	execSessions    *execSessionRegistry
 	execSSHClients  *execSSHClientPool
 
 	single singleflight.Group
@@ -80,10 +78,8 @@ func New(opts ...Option) (*Controller, error) {
 		connRendezvous:                     rendezvous.New[rendezvous.ResultWithErrorMessage[net.Conn]](),
 		ipRendezvous:                       rendezvous.New[rendezvous.ResultWithErrorMessage[string]](),
 		workerOfflineTimeout:               3 * time.Minute,
-		execSessionRetentionTTL:            10 * time.Minute,
 		execSSHConnectionKeepaliveInterval: 30 * time.Second,
 		pingInterval:                       30 * time.Second,
-		execSessions:                       newExecSessionRegistry(),
 		single:                             singleflight.Group{},
 	}
 
@@ -357,7 +353,6 @@ func (controller *Controller) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 
-		controller.execSessions.closeAll()
 		controller.execSSHClients.closeAll()
 
 		if err := controller.httpServer.Shutdown(ctx); err != nil {

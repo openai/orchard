@@ -70,6 +70,12 @@ linters:
     # Not all errors need to be checked
     - errcheck
 
+    # It's OK to have "magic" numbers in things like time.Sleep()
+    - mnd
+
+    # This is not a library, so it's OK to use dynamic errors
+    - err113
+
     # It's OK to not initialize some struct fields
     - exhaustruct
     - exhaustruct_v5
