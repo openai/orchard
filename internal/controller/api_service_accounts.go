@@ -82,13 +82,23 @@ func (controller *Controller) updateServiceAccount(ctx *gin.Context) responder.R
 		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid JSON was provided"))
 	}
 
+	name := ctx.Param("name")
+
 	// Validate service account name
+	if name == "" {
+		return responder.JSON(http.StatusPreconditionFailed,
+			NewErrorResponse("service account name is empty"))
+	} else if err := simplename.Validate(name); err != nil {
+		return responder.JSON(http.StatusPreconditionFailed,
+			NewErrorResponse("service account %v", err))
+	}
 	if userServiceAccount.Name == "" {
 		return responder.JSON(http.StatusPreconditionFailed,
 			NewErrorResponse("service account name is empty"))
-	} else if err := simplename.Validate(userServiceAccount.Name); err != nil {
+	}
+	if userServiceAccount.Name != name {
 		return responder.JSON(http.StatusPreconditionFailed,
-			NewErrorResponse("service account %v", err))
+			NewErrorResponse("service account name does not match URL path"))
 	}
 
 	// Validate roles
@@ -105,7 +115,7 @@ func (controller *Controller) updateServiceAccount(ctx *gin.Context) responder.R
 	}
 
 	return controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
-		dbServiceAccount, err := txn.GetServiceAccount(userServiceAccount.Name)
+		dbServiceAccount, err := txn.GetServiceAccount(name)
 		if err != nil {
 			return responder.Error(err)
 		}
