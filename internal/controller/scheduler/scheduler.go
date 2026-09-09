@@ -13,7 +13,7 @@ import (
 	storepkg "github.com/cirruslabs/orchard/internal/controller/store"
 	"github.com/cirruslabs/orchard/internal/opentelemetry"
 	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
-	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
+	"github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/cirruslabs/orchard/rpc"
 	mapset "github.com/deckarep/golang-set/v2"
 	"go.opentelemetry.io/otel/attribute"
@@ -25,8 +25,6 @@ const (
 	schedulerInterval = 5 * time.Second
 
 	schedulerVMRestartDelay = 15 * time.Second
-
-	waitingForWorkerStatusMessage = "Waiting for an available worker"
 )
 
 var (
@@ -356,9 +354,6 @@ NextVM:
 
 				unscheduledVM.Worker = worker.Name
 				unscheduledVM.ScheduledAt = time.Now()
-				if unscheduledVM.StatusMessage == waitingForWorkerStatusMessage {
-					unscheduledVM.StatusMessage = ""
-				}
 				v1.ConditionsSet(&unscheduledVM.Conditions, v1.Condition{
 					Type:  v1.ConditionTypeScheduled,
 					State: v1.ConditionStateTrue,
@@ -416,11 +411,7 @@ NextVM:
 			scheduler.schedulingTimeHistogram.Record(context.Background(),
 				time.Since(unscheduledVM.CreatedAt).Seconds())
 
-			continue NextVM
-		}
-
-		if err := scheduler.setWaitingForWorker(unscheduledVM); err != nil {
-			return 0, 0, err
+			break
 		}
 	}
 
@@ -439,35 +430,6 @@ NextVM:
 
 	return len(workers), len(vms), nil
 }
-
-func (scheduler *Scheduler) setWaitingForWorker(vm v1.VM) error {
-	if vm.Status != v1.VMStatusPending || vm.PowerState.TerminalState() ||
-		vm.StatusMessage == waitingForWorkerStatusMessage {
-		return nil
-	}
-
-	return scheduler.store.Update(func(txn storepkg.Transaction) error {
-		currentVM, err := txn.GetVM(vm.Name)
-		if errors.Is(err, storepkg.ErrNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		// Re-check the current VM so a lagging scheduling iteration cannot
-		// overwrite the status of a replaced, updated, or already scheduled VM.
-		if currentVM.UID != vm.UID || currentVM.Generation != vm.Generation ||
-			currentVM.IsScheduled() || currentVM.Status != v1.VMStatusPending ||
-			currentVM.PowerState.TerminalState() || currentVM.StatusMessage == waitingForWorkerStatusMessage {
-			return nil
-		}
-
-		currentVM.StatusMessage = waitingForWorkerStatusMessage
-		return txn.SetVM(*currentVM)
-	})
-}
-
 func ProcessVMs(vms []v1.VM) ([]v1.VM, WorkerInfos) {
 	var unscheduledVMs []v1.VM
 	workerToResources := make(WorkerInfos)
