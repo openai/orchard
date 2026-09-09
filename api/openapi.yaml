@@ -800,8 +800,16 @@ components:
           default: admin
         startup_script:
           type: object
-          description: Startup script to run after the VM boots and becomes accessible via SSH
+          description: Startup script to run after the VM boots
           properties:
+            transport:
+              type: string
+              description: |
+                Transport used to execute the startup script.
+                Omitted or empty values use SSH.
+                `tart-guest-agent` is supported only with the Tart runtime.
+              enum: [ "", ssh, tart-guest-agent ]
+              default: ssh
             script_content:
               type: string
             env:

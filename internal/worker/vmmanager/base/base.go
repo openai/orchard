@@ -23,11 +23,15 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 var ErrVMFailed = errors.New("VM failed")
 
 type VM struct {
+	onDiskName ondiskname.OnDiskName
+	os         v1.OS
+
 	// Backward compatibility with v1.VM specification's "Status" field
 	//
 	// "started" is always true after the first "tart run",
@@ -54,6 +58,8 @@ type VM struct {
 
 func NewVM(vmResource v1.VM, onDiskName ondiskname.OnDiskName, logger *zap.SugaredLogger) *VM {
 	return &VM{
+		onDiskName:    onDiskName,
+		os:            vmResource.OS,
 		conditions:    mapset.NewSet(v1.ConditionTypeCloning),
 		hostProcesses: hostprocess.NewSet(vmResource.Worker, vmResource.Name, onDiskName),
 		endpoints:     endpoint.NewSet(logger),
@@ -165,7 +171,6 @@ func (vm *VM) Shell(
 	sshUser string,
 	sshPassword string,
 	script string,
-	env map[string]string,
 	consumeLine func(line string),
 	dialer dialer.Dialer,
 	getIP func(ctx context.Context) (string, error),
@@ -265,17 +270,7 @@ func (vm *VM) Shell(
 		return fmt.Errorf("%w: failed to start a shell: %v", ErrVMFailed, err)
 	}
 
-	var scriptBuilder strings.Builder
-
-	scriptBuilder.WriteString("set -e\n")
-	// don't use sess.Setenv since it requires non-default SSH server configuration
-	for key, value := range env {
-		scriptBuilder.WriteString("export " + key + "=\"" + value + "\"\n")
-	}
-	scriptBuilder.WriteString(script)
-	scriptBuilder.WriteString("\nexit\n")
-
-	_, err = stdinBuf.Write([]byte(scriptBuilder.String()))
+	_, err = stdinBuf.Write([]byte(script))
 	if err != nil {
 		return fmt.Errorf("%w: failed to start script: %v", ErrVMFailed, err)
 	}
@@ -312,7 +307,34 @@ func (vm *VM) RunScript(
 		})
 	}
 
-	err := vm.Shell(ctx, sshUser, sshPassword, script.ScriptContent, script.Env, consumeLine, dialer, getIP)
+	var scriptBuilder strings.Builder
+
+	scriptBuilder.WriteString("set -e\n")
+	for key, value := range script.Env {
+		if !syntax.ValidName(key) {
+			vm.SetErr(fmt.Errorf("%w: invalid environment variable name %q", ErrVMFailed, key))
+			return
+		}
+
+		quotedValue, err := syntax.Quote(value, lo.Ternary(vm.os == v1.OSDarwin, syntax.LangZsh, syntax.LangBash))
+		if err != nil {
+			vm.SetErr(fmt.Errorf("%w: failed to quote environment variable %q: %v", ErrVMFailed, key, err))
+			return
+		}
+
+		scriptBuilder.WriteString("export " + key + "=" + quotedValue + "\n")
+	}
+	scriptBuilder.WriteString(script.ScriptContent)
+	scriptBuilder.WriteString("\nexit\n")
+
+	var err error
+
+	switch script.Transport {
+	case v1.VMScriptTransportTartGuestAgent:
+		err = vm.shellTartGuestAgent(ctx, scriptBuilder.String(), consumeLine)
+	default:
+		err = vm.Shell(ctx, sshUser, sshPassword, scriptBuilder.String(), consumeLine, dialer, getIP)
+	}
 	if err != nil {
 		vm.SetErr(fmt.Errorf("%w: failed to run startup script: %v", ErrVMFailed, err))
 	}
