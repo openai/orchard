@@ -1,4 +1,4 @@
-module github.com/cirruslabs/orchard
+module github.com/openai/orchard
 
 go 1.27
 
