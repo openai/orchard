@@ -88,10 +88,17 @@ func NewFromString(rawBootstrapToken string) (*BootstrapToken, error) {
 		return nil, fmt.Errorf("%w: failed to decode service account name: %v",
 			ErrInvalidBootstrapTokenFormat, err)
 	}
+	if len(serviceAccountName) == 0 {
+		return nil, fmt.Errorf("%w: empty service account name", ErrInvalidBootstrapTokenFormat)
+	}
+
 	serviceAccountToken, err := encoding.DecodeString(splits[2])
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to decode service account token: %v",
 			ErrInvalidBootstrapTokenFormat, err)
+	}
+	if len(serviceAccountToken) == 0 {
+		return nil, fmt.Errorf("%w: empty service account token", ErrInvalidBootstrapTokenFormat)
 	}
 
 	// Optionally parse the certificate
@@ -106,11 +113,15 @@ func NewFromString(rawBootstrapToken string) (*BootstrapToken, error) {
 		}
 
 		block, _ := pem.Decode(rawCertificate)
+		if block == nil {
+			return nil, fmt.Errorf("%w: failed to parse certificate: expected a PEM format",
+				ErrInvalidBootstrapTokenFormat)
+		}
 
 		certificate, err = x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			return nil, fmt.Errorf("%w: failed to parse certificate: %v",
-				ErrFailedToCreateBootstrapToken, err)
+				ErrInvalidBootstrapTokenFormat, err)
 		}
 	}
 
