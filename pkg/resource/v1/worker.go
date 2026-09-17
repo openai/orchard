@@ -43,7 +43,10 @@ func (worker *Worker) SetVersion(_ uint64) {}
 
 type WorkerCapability string
 
-const WorkerCapabilityVMEndpoints WorkerCapability = "vm-endpoints"
+const (
+	WorkerCapabilityVMEndpoints    WorkerCapability = "vm-endpoints"
+	WorkerCapabilityVMExposedPorts WorkerCapability = "vm-exposed-ports"
+)
 
 type WorkerCapabilities []WorkerCapability
 
