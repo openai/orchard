@@ -372,6 +372,10 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 		runArgs = append(runArgs, "--no-clipboard")
 	}
 
+	if !resource.USBAccessories {
+		runArgs = append(runArgs, "--no-usb-accessories")
+	}
+
 	if resource.Suspendable {
 		runArgs = append(runArgs, "--suspendable")
 	}

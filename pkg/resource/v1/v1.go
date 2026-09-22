@@ -180,6 +180,9 @@ func (vm *VM) Validate() error {
 		if vm.Suspendable {
 			return unsupportedFieldError("suspendable")
 		}
+		if vm.USBAccessories {
+			return unsupportedFieldError("usbAccessories")
+		}
 	}
 
 	return nil
@@ -211,6 +214,7 @@ type VMSpec struct {
 	NetSoftnetAllow      []string       `json:"netSoftnetAllow,omitempty"`
 	NetSoftnetBlock      []string       `json:"netSoftnetBlock,omitempty"`
 	Suspendable          bool           `json:"suspendable,omitempty"`
+	USBAccessories       bool           `json:"usbAccessories,omitempty"`
 	PowerState           PowerState     `json:"powerState,omitempty"`
 }
 
