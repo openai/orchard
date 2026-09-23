@@ -238,6 +238,10 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 			return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("\"netSoftnet\" cannot be "+
 				"toggled for suspendable VMs"))
 		}
+		if dbVM.Suspendable && dbVM.USBAccessories != userVM.USBAccessories {
+			return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("\"usbAccessories\" cannot be "+
+				"toggled for suspendable VMs"))
+		}
 
 		// Power state-specific sanity checks
 		if !userVM.PowerState.Valid() {

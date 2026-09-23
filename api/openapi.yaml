@@ -729,6 +729,15 @@ components:
             - "66.66.0.0/16"
           items:
             type: string
+        usbAccessories:
+          type: boolean
+          description: |
+            Whether to enable USB accessories in a Tart VM. When disabled, the worker
+            passes `--no-usb-accessories` to `tart run`. Requires a Tart version that supports
+            this flag. Native Mac input remains available where supported.
+            Changing this setting restarts the VM and is not supported for
+            suspendable VMs.
+          default: false
         suspendable:
           type: boolean
           description: |

@@ -54,6 +54,39 @@ func TestCloneAndConfigurePreservesSuspendedVM(t *testing.T) {
 	}
 }
 
+func TestRunUSBAccessoriesConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		usbAccessories bool
+		suspendable    bool
+		wantFlags      string
+	}{
+		{name: "default", wantFlags: "--no-usb-accessories "},
+		{name: "USB accessories enabled", usbAccessories: true},
+		{name: "suspendable", suspendable: true, wantFlags: "--no-usb-accessories --suspendable "},
+		{name: "both", usbAccessories: true, suspendable: true, wantFlags: "--suspendable "},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commandLog := installCloneFakeTart(t, "", "")
+			vm := newCloneTestVM(v1.VM{
+				Name:           "test-vm",
+				UID:            "00112233-4455-6677-8899-aabbccddeeff",
+				Audio:          true,
+				Clipboard:      true,
+				USBAccessories: test.usbAccessories,
+				Suspendable:    test.suspendable,
+			})
+			vm.ctx = t.Context()
+			vm.ConditionsSet().Add(v1.ConditionTypeStopping)
+
+			vm.run(t.Context(), nil)
+
+			require.NoError(t, vm.Err())
+			requireCloneCommands(t, commandLog, []string{"run " + test.wantFlags + vm.id()})
+		})
+	}
+}
+
 func TestCloneAndConfigureConfiguresStoppedVM(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -197,7 +230,7 @@ if [ "$1" = "$ORCHARD_TEST_TART_FAILED_COMMAND" ]; then
     exit 1
 fi
 case "$1" in
-    clone|set) ;;
+    clone|set|run) ;;
     fqn) printf 'registry.example/source@sha256:abc\n' ;;
     get) printf '%s\n' "$ORCHARD_TEST_TART_INFO" ;;
     *) printf 'unexpected command: %s\n' "$*" >&2; exit 1 ;;

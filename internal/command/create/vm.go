@@ -31,6 +31,7 @@ var nested bool
 var audio bool
 var clipboard bool
 var suspendable bool
+var usbAccessories bool
 var username string
 var password string
 var resources map[string]string
@@ -75,6 +76,7 @@ func newCreateVMCommand() *cobra.Command {
 	command.Flags().BoolVar(&nested, "nested", false, "enable nested virtualization")
 	command.Flags().BoolVar(&audio, "audio", false, "enable audio pass-through to the host")
 	command.Flags().BoolVar(&clipboard, "clipboard", false, "enable clipboard sharing between host and guest")
+	command.Flags().BoolVar(&usbAccessories, "usb-accessories", false, "enable USB accessories in a Tart VM")
 	command.Flags().BoolVar(&suspendable, "suspendable", false, "treat the VM as suspendable, "+
 		"disabling certain devices for suspendability support and issuing \"tart suspend\" instead of \"tart stop\" "+
 		"when VM's specification is updated, thus preserving the VM's state between specification generations")
@@ -160,6 +162,7 @@ func runCreateVM(cmd *cobra.Command, args []string) error {
 			NetSoftnetAllow:      netSoftnetAllow,
 			NetSoftnetBlock:      netSoftnetBlock,
 			Suspendable:          suspendable,
+			USBAccessories:       usbAccessories,
 		},
 		NetBridged:   netBridged,
 		Headless:     headless,
