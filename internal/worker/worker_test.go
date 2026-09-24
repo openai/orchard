@@ -232,7 +232,7 @@ func newWorkerWithFakeTart(
 		vmm:           vmmanager.New(),
 		pollTicker:    pollTicker,
 		syncRequested: make(chan bool, 1),
-		runtime:       runtime.NewTart(),
+		runtime:       runtime.NewTart(DefaultVMStopTimeoutSeconds),
 		logger:        zap.NewNop().Sugar(),
 	}
 }

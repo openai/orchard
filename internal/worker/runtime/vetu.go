@@ -12,10 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type Vetu struct{}
+type Vetu struct {
+	stopTimeoutSeconds uint16
+}
 
-func NewVetu() *Vetu {
-	return &Vetu{}
+func NewVetu(stopTimeoutSeconds uint16) *Vetu {
+	return &Vetu{stopTimeoutSeconds: stopTimeoutSeconds}
 }
 
 func (vetu *Vetu) ID() v1.Runtime {
@@ -34,7 +36,7 @@ func (vetu *Vetu) NewVM(
 	_ bool,
 	logger *zap.SugaredLogger,
 ) vmmanager.VM {
-	return vetupkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, dialer, logger)
+	return vetupkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, dialer, logger, vetu.stopTimeoutSeconds)
 }
 
 func (vetu *Vetu) ListVMs(ctx context.Context, logger *zap.SugaredLogger) ([]vmmanager.VMInfo, error) {

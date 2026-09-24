@@ -12,10 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type Tart struct{}
+type Tart struct {
+	stopTimeoutSeconds uint16
+}
 
-func NewTart() *Tart {
-	return &Tart{}
+func NewTart(stopTimeoutSeconds uint16) *Tart {
+	return &Tart{stopTimeoutSeconds: stopTimeoutSeconds}
 }
 
 func (tart *Tart) ID() v1.Runtime {
@@ -34,7 +36,8 @@ func (tart *Tart) NewVM(
 	softnetPolicyUpdates bool,
 	logger *zap.SugaredLogger,
 ) vmmanager.VM {
-	return tartpkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, dialer, softnetPolicyUpdates, logger)
+	return tartpkg.NewVM(vmResource, eventStreamer, vmPullTimeHistogram, dialer,
+		softnetPolicyUpdates, logger, tart.stopTimeoutSeconds)
 }
 
 func (tart *Tart) ListVMs(ctx context.Context, logger *zap.SugaredLogger) ([]vmmanager.VMInfo, error) {
