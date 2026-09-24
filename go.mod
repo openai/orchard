@@ -13,8 +13,8 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/dgraph-io/badger/v3 v3.2103.5
-	github.com/dustin/go-humanize v1.0.1
-	github.com/gin-contrib/zap v1.1.8
+	github.com/dustin/go-humanize v1.1.0
+	github.com/gin-contrib/zap v1.1.9
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-openapi/runtime v0.33.2
 	github.com/gofrs/flock v0.13.1
@@ -44,15 +44,15 @@ require (
 	go.opentelemetry.io/otel/metric v1.46.0
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/crypto v0.56.0
+	golang.org/x/crypto v0.57.0
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa
 	golang.org/x/exp/jsonrpc2 v0.0.0-20260718201538-764159d718ef
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
-	golang.org/x/term v0.45.0
-	golang.org/x/text v0.41.0
-	google.golang.org/grpc v1.83.2
+	golang.org/x/term v0.46.0
+	golang.org/x/text v0.42.0
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
