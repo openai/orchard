@@ -26,10 +26,10 @@ func TestStopWaitsForCommandAndRun(t *testing.T) {
 		new  func(v1.VM) vmmanager.VM
 	}{
 		{name: "tart", new: func(resource v1.VM) vmmanager.VM {
-			return tart.NewVM(resource, nil, nil, nil, false, zap.NewNop().Sugar())
+			return tart.NewVM(resource, nil, nil, nil, false, zap.NewNop().Sugar(), 5)
 		}},
 		{name: "vetu", new: func(resource v1.VM) vmmanager.VM {
-			return vetu.NewVM(resource, nil, nil, nil, zap.NewNop().Sugar())
+			return vetu.NewVM(resource, nil, nil, nil, zap.NewNop().Sugar(), 5)
 		}},
 	}
 

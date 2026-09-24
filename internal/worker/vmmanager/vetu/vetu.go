@@ -33,8 +33,9 @@ type VM struct {
 
 	wg *sync.WaitGroup
 
-	stopMtx  sync.Mutex
-	stopDone chan error
+	stopMtx            sync.Mutex
+	stopDone           chan error
+	stopTimeoutSeconds uint16
 
 	dialer dialer.Dialer
 
@@ -47,6 +48,7 @@ func NewVM(
 	vmPullTimeHistogram metric.Float64Histogram,
 	dialer dialer.Dialer,
 	logger *zap.SugaredLogger,
+	stopTimeoutSeconds uint16,
 ) *VM {
 	vmContext, vmContextCancel := context.WithCancel(context.Background())
 
@@ -62,7 +64,8 @@ func NewVM(
 		ctx:    vmContext,
 		cancel: vmContextCancel,
 
-		wg: &sync.WaitGroup{},
+		wg:                 &sync.WaitGroup{},
+		stopTimeoutSeconds: stopTimeoutSeconds,
 
 		dialer: dialer,
 
@@ -281,7 +284,8 @@ func (vm *VM) Stop() <-chan error {
 	go func() {
 		if ctx.Err() == nil {
 			// Try to gracefully terminate the VM.
-			_, _, _ = Vetu(context.WithoutCancel(ctx), zap.NewNop().Sugar(), "stop", "--timeout", "5", vm.id())
+			_, _, _ = Vetu(context.WithoutCancel(ctx), zap.NewNop().Sugar(), "stop", "--timeout",
+				strconv.FormatUint(uint64(vm.stopTimeoutSeconds), 10), vm.id())
 		}
 
 		// Cancellation requests shutdown; it does not establish completion.

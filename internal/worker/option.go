@@ -59,6 +59,12 @@ func WithSoftnetPolicyUpdates(enabled bool) Option {
 	}
 }
 
+func WithVMStopTimeout(seconds uint16) Option {
+	return func(worker *Worker) {
+		worker.vmStopTimeoutSeconds = seconds
+	}
+}
+
 func WithLogger(logger *zap.Logger) Option {
 	return func(worker *Worker) {
 		worker.logger = logger.Sugar()

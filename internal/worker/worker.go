@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
 	goruntime "runtime"
@@ -48,6 +49,8 @@ const (
 	onDiskVMSyncTimeout          = 30 * time.Second
 
 	tartVersionSoftnetPolicyUpdates = "2.34.0"
+
+	DefaultVMStopTimeoutSeconds = 5
 )
 
 var (
@@ -72,6 +75,7 @@ type Worker struct {
 	runtime runtime.Runtime
 
 	softnetPolicyUpdates mo.Option[bool]
+	vmStopTimeoutSeconds uint16
 
 	vmPullTimeHistogram metric.Float64Histogram
 
@@ -82,11 +86,12 @@ type Worker struct {
 
 func New(client *client.Client, opts ...Option) (*Worker, error) {
 	worker := &Worker{
-		client:        client,
-		pollTicker:    time.NewTicker(pollInterval),
-		recoveredVMs:  make(map[ondiskname.OnDiskName]time.Time),
-		vmm:           vmmanager.New(),
-		syncRequested: make(chan bool, 1),
+		client:               client,
+		pollTicker:           time.NewTicker(pollInterval),
+		recoveredVMs:         make(map[ondiskname.OnDiskName]time.Time),
+		vmm:                  vmmanager.New(),
+		syncRequested:        make(chan bool, 1),
+		vmStopTimeoutSeconds: DefaultVMStopTimeoutSeconds,
 	}
 
 	// Apply options
@@ -110,9 +115,9 @@ func New(client *client.Client, opts ...Option) (*Worker, error) {
 
 	if worker.runtime == nil {
 		if goruntime.GOOS == "linux" {
-			worker.runtime = runtime.NewVetu()
+			worker.runtime = runtime.NewVetu(worker.vmStopTimeoutSeconds)
 		} else {
-			worker.runtime = runtime.NewTart()
+			worker.runtime = runtime.NewTart(worker.vmStopTimeoutSeconds)
 		}
 	}
 
@@ -920,7 +925,8 @@ func (worker *Worker) syncOnDiskVMsWithInventory(ctx context.Context, vmInfos []
 			// On-disk VM doesn't exist on the controller nor in the Worker's VM manager,
 			// stop it (if applicable) and delete it
 			if vmInfo.Running {
-				_, _, err := worker.runtime.Cmd(ctx, worker.logger, "stop", vmInfo.Name)
+				_, _, err := worker.runtime.Cmd(ctx, worker.logger, "stop", "--timeout",
+					strconv.FormatUint(uint64(worker.vmStopTimeoutSeconds), 10), vmInfo.Name)
 				if err != nil {
 					worker.logger.Warnf("failed to stop")
 				}
@@ -935,7 +941,8 @@ func (worker *Worker) syncOnDiskVMsWithInventory(ctx context.Context, vmInfos []
 			// but we've lost track of it, so shut it down (if applicable)
 			// and report the error (if not failed yet)
 			if vmInfo.Running {
-				_, _, err := worker.runtime.Cmd(ctx, worker.logger, "stop", vmInfo.Name)
+				_, _, err := worker.runtime.Cmd(ctx, worker.logger, "stop", "--timeout",
+					strconv.FormatUint(uint64(worker.vmStopTimeoutSeconds), 10), vmInfo.Name)
 				if err != nil {
 					worker.logger.Warnf("failed to stop")
 				}

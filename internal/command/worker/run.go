@@ -48,6 +48,7 @@ var defaultMemory uint64
 var username string
 var addressPprof string
 var debug bool
+var experimentalVMStopTimeout uint16
 
 // Hidden flags
 var synthetic bool
@@ -88,6 +89,9 @@ func newRunCommand() *cobra.Command {
 	cmd.Flags().StringVar(&addressPprof, "listen-pprof", "",
 		"start pprof HTTP server on localhost:6060 for diagnostic purposes (e.g. \"localhost:6060\")")
 	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
+	cmd.Flags().Uint16Var(&experimentalVMStopTimeout, "experimental-vm-stop-timeout",
+		worker.DefaultVMStopTimeoutSeconds,
+		"seconds to wait for graceful shutdown of Tart and Vetu VMs before forceful termination")
 
 	// Hidden flags
 	cmd.Flags().BoolVar(&synthetic, "synthetic", false,
@@ -107,6 +111,7 @@ func runWorker(cmd *cobra.Command, args []string) (err error) {
 		worker.WithName(name),
 		worker.WithLabels(labels),
 		worker.WithDefaultCPUAndMemory(defaultCPU, defaultMemory),
+		worker.WithVMStopTimeout(experimentalVMStopTimeout),
 	}
 
 	// Run the macOS "Local Network" permission helper
