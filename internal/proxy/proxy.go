@@ -42,16 +42,18 @@ func Connections(left io.ReadWriteCloser, right io.ReadWriteCloser) (finalErr er
 		leftErrCh <- err
 	}()
 
-	// Wait for some goroutine and then unlock the other goroutine
-	// by closing its source io.Reader
+	// Close both connections when either copy ends. The remaining copy may
+	// be blocked in a destination Write rather than a source Read.
 	select {
 	case err := <-rightErrCh:
 		recordErr(err)
 		recordErr(left.Close())
+		recordErr(right.Close())
 		recordErr(<-leftErrCh)
 	case err := <-leftErrCh:
 		recordErr(err)
 		recordErr(right.Close())
+		recordErr(left.Close())
 		recordErr(<-rightErrCh)
 	}
 
