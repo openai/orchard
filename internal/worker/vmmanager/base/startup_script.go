@@ -25,6 +25,9 @@ func (vm *VM) shellTartGuestAgent(ctx context.Context, script string, consumeLin
 
 	conn, err := grpc.NewClient("passthrough:///tart-guest-agent",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// Limit guest output in flight to work around VirtIO socket device implementation data loss
+		grpc.WithStaticStreamWindowSize(64*1024),
+		grpc.WithStaticConnWindowSize(64*1024),
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return socketalias.DialContext(ctx, path)
 		}),
