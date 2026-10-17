@@ -66,6 +66,8 @@ func runVNCVM(cmd *cobra.Command, args []string) (err error) {
 			}
 
 			go func() {
+				defer conn.Close()
+
 				wsConn, err := client.VMs().PortForward(cmd.Context(), name, vncPort, wait)
 				if err != nil {
 					fmt.Printf("failed to forward port: %v\n", err)
