@@ -102,6 +102,7 @@ func runGetVM(cmd *cobra.Command, args []string) error {
 	table.AddRow("Clipboard sharing enabled", vm.Clipboard)
 	table.AddRow("Status", vm.Status)
 	table.AddRow("Status message", vm.StatusMessage)
+	table.AddRow("Conditions", nonEmptyOrNone(v1.ConditionsHumanize(vm.Conditions)))
 	table.AddRow("Assigned worker", nonEmptyOrNone(vm.Worker))
 
 	table.AddRow("Restart policy", vm.RestartPolicy)
