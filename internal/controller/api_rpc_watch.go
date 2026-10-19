@@ -16,7 +16,7 @@ import (
 
 //nolint:protogetter // Preserve the original host-process wire conversion.
 func (controller *Controller) rpcWatch(ctx *gin.Context) responder.Responder {
-	if responder := controller.authorize(ctx, v1.ServiceAccountRoleComputeRead); responder != nil {
+	if responder := controller.authorize(ctx, v1.ServiceAccountRoleComputeWrite); responder != nil {
 		return responder
 	}
 
