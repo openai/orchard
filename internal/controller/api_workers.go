@@ -100,7 +100,7 @@ func (controller *Controller) updateWorker(ctx *gin.Context) responder.Responder
 	}
 
 	return controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
-		dbWorker, err := txn.GetWorker(userWorker.Name)
+		dbWorker, err := txn.GetWorker(ctx.Param("name"))
 		if err != nil {
 			return responder.Error(err)
 		}
