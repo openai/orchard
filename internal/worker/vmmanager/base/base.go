@@ -247,17 +247,21 @@ func (vm *VM) Shell(
 		return fmt.Errorf("%w: while opening stderr pipe: %v", ErrVMFailed, err)
 	}
 	var outputReaderWG sync.WaitGroup
-	outputReaderWG.Add(1)
-	go func() {
-		output := io.MultiReader(stdout, stderr)
+	var consumeLineMutex sync.Mutex
+	outputReaderWG.Add(2)
+	for _, output := range []io.Reader{stdout, stderr} {
+		go func() {
+			defer outputReaderWG.Done()
+			scanner := bufio.NewScanner(output)
 
-		scanner := bufio.NewScanner(output)
-
-		for scanner.Scan() {
-			consumeLine(scanner.Text())
-		}
-		outputReaderWG.Done()
-	}()
+			for scanner.Scan() {
+				// Drain both SSH streams while preserving serialized callbacks.
+				consumeLineMutex.Lock()
+				consumeLine(scanner.Text())
+				consumeLineMutex.Unlock()
+			}
+		}()
+	}
 
 	stdinBuf, err := sess.StdinPipe()
 	if err != nil {
