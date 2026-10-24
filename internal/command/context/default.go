@@ -7,10 +7,11 @@ import (
 
 func newDefaultCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "default NAME",
-		Short: "Set a default context to use for client/worker commands",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDefault,
+		Use:     "default NAME",
+		Aliases: []string{"set", "use"},
+		Short:   "Set a default context to use for client/worker commands",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDefault,
 	}
 
 	return command
