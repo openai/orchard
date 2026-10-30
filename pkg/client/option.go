@@ -3,6 +3,7 @@ package client
 import (
 	"crypto/x509"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/cirruslabs/orchard/internal/dialer"
@@ -10,6 +11,15 @@ import (
 )
 
 type Option func(*Client)
+
+// WithHTTPClient uses httpClient for HTTP and WebSocket requests.
+// The caller configures its timeout and transport, including TLS and dialing,
+// and owns connection cleanup. Passing nil uses the default HTTP client.
+func WithHTTPClient(httpClient *http.Client) Option {
+	return func(client *Client) {
+		client.httpClient = httpClient
+	}
+}
 
 func WithAddress(address string) Option {
 	return func(client *Client) {
