@@ -26,8 +26,15 @@ func Connections(left io.ReadWriteCloser, right io.ReadWriteCloser) (finalErr er
 	leftErrCh := make(chan error, 1)
 	rightErrCh := make(chan error, 1)
 
+	// SSH channels can report EOF from Close after their peer has already
+	// completed a normal close handshake. Errors caused by closing the other
+	// copy's connection are also expected during fallback shutdown.
 	recordErr := func(newErr error) {
-		if newErr != nil && finalErr == nil {
+		if newErr == nil || errors.Is(newErr, io.EOF) || errors.Is(newErr, net.ErrClosed) ||
+			strings.Contains(newErr.Error(), "use of closed network connection") {
+			return
+		}
+		if finalErr == nil {
 			finalErr = newErr
 		}
 	}
@@ -55,10 +62,6 @@ func Connections(left io.ReadWriteCloser, right io.ReadWriteCloser) (finalErr er
 		recordErr(right.Close())
 		recordErr(left.Close())
 		recordErr(<-rightErrCh)
-	}
-
-	if finalErr != nil && strings.Contains(finalErr.Error(), "use of closed network connection") {
-		finalErr = nil
 	}
 
 	return finalErr
