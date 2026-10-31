@@ -83,8 +83,8 @@ func runVNCVM(cmd *cobra.Command, args []string) (err error) {
 
 	username, password = ssh.ChooseUsernameAndPassword(cmd.Context(), client, name, username, password)
 
-	openURL := fmt.Sprintf("vnc://%s:%s@%s", username, password, listener.Addr().String())
-	openURLSanitized := fmt.Sprintf("vnc://%s@%s", username, listener.Addr().String())
+	openURL := newVNCURL(listener.Addr().String(), username, password)
+	openURLSanitized := newVNCURL(listener.Addr().String(), username, "")
 
 	fmt.Printf("opening %s...\n", openURLSanitized)
 
