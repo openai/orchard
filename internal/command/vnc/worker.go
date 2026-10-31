@@ -71,23 +71,13 @@ func runVNCWorker(cmd *cobra.Command, args []string) (err error) {
 		}
 	}()
 
-	var credentialsComponent string
-	var credentialsComponentSanitized string
+	openURL := newVNCURL(listener.Addr().String(), "", "")
+	openURLSanitized := openURL
 
 	if username != "" {
-		credentialsComponent = username
-		credentialsComponentSanitized = username
-
-		if password != "" {
-			credentialsComponent += ":" + password
-		}
-
-		credentialsComponent += "@"
-		credentialsComponentSanitized += "@"
+		openURL = newVNCURL(listener.Addr().String(), username, password)
+		openURLSanitized = newVNCURL(listener.Addr().String(), username, "")
 	}
-
-	openURL := fmt.Sprintf("vnc://%s%s", credentialsComponent, listener.Addr().String())
-	openURLSanitized := fmt.Sprintf("vnc://%s%s", credentialsComponentSanitized, listener.Addr().String())
 
 	fmt.Printf("opening %s...\n", openURLSanitized)
 

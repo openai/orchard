@@ -99,22 +99,23 @@ func New(opts ...Option) (*Client, error) {
 		}
 	}
 
-	// Instantiate the HTTP client
-	transport := &http.Transport{
-		TLSClientConfig: client.tlsConfig,
-	}
+	if client.httpClient == nil {
+		transport := &http.Transport{
+			TLSClientConfig: client.tlsConfig,
+		}
 
-	if client.dialer != nil {
-		transport.DialContext = client.dialer.DialContext
-	}
+		if client.dialer != nil {
+			transport.DialContext = client.dialer.DialContext
+		}
 
-	client.httpClient = &http.Client{
-		// The default is zero, which means no timeout, which means that
-		// the requests may hang indefinitely. See [1] for more details.
-		//
-		// [1]: https://github.com/cirruslabs/orchard/issues/152#issuecomment-1927091747
-		Timeout:   defaultHTTPTimeout,
-		Transport: transport,
+		client.httpClient = &http.Client{
+			// The default is zero, which means no timeout, which means that
+			// the requests may hang indefinitely. See [1] for more details.
+			//
+			// [1]: https://github.com/cirruslabs/orchard/issues/152#issuecomment-1927091747
+			Timeout:   defaultHTTPTimeout,
+			Transport: transport,
+		}
 	}
 
 	url, err := url.Parse(client.address)
