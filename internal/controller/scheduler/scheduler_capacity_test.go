@@ -103,3 +103,56 @@ func TestSchedulingLoopSkipsOvercommittedWorker(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+type replaceAfterViewStore struct {
+	storepkg.Store
+
+	replacement v1.VM
+}
+
+func (store *replaceAfterViewStore) View(cb func(storepkg.Transaction) error) error {
+	if err := store.Store.View(cb); err != nil {
+		return err
+	}
+	return store.Update(func(txn storepkg.Transaction) error {
+		return txn.SetVM(store.replacement)
+	})
+}
+
+func TestHealthCheckSkipsUnscheduledReplacement(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	store, err := badger.NewBadgerStore(t.TempDir(), true, logger)
+	require.NoError(t, err)
+
+	var replacement v1.VM
+	replacement.Name = "replaced-vm"
+	replacement.UID = "replacement-uid"
+	replacement.Status = v1.VMStatusPending
+
+	original := replacement
+	original.UID = "original-uid"
+	original.Status = v1.VMStatusRunning
+	original.Worker = "worker-a"
+	original.Conditions = []v1.Condition{{
+		Type:  v1.ConditionTypeScheduled,
+		State: v1.ConditionStateTrue,
+	}}
+	require.NoError(t, store.Update(func(txn storepkg.Transaction) error {
+		return txn.SetVM(original)
+	}))
+
+	scheduler, err := NewScheduler(&replaceAfterViewStore{Store: store, replacement: replacement},
+		notifier.NewNotifier(logger), time.Minute, logger)
+	require.NoError(t, err)
+	_, err = scheduler.healthCheckingLoopIteration()
+	require.NoError(t, err)
+
+	require.NoError(t, store.View(func(txn storepkg.Transaction) error {
+		current, err := txn.GetVM(replacement.Name)
+		require.NoError(t, err)
+		require.Equal(t, replacement.UID, current.UID)
+		require.Equal(t, v1.VMStatusPending, current.Status)
+		require.Empty(t, current.StatusMessage)
+		return nil
+	}))
+}
