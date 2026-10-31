@@ -500,7 +500,7 @@ func (scheduler *Scheduler) healthCheckingLoopIteration() (int, error) {
 				return err
 			}
 
-			if !vm.IsScheduled() {
+			if !currentVM.IsScheduled() {
 				// Not a scheduled VM, nothing to do
 				return nil
 			}
