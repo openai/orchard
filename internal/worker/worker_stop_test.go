@@ -61,6 +61,7 @@ func (vm *delayedStopVM) Start(streamer *client.EventStreamer) {
 	v1.ConditionsSet(&vm.conditions, v1.Condition{
 		Type: v1.ConditionTypeRunning, State: v1.ConditionStateTrue,
 	})
+	streamer.Stream(v1.Event{Kind: v1.EventKindLogLine, Payload: "started"})
 	_ = streamer.Close()
 }
 
