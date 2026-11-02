@@ -40,4 +40,8 @@ This will start Orchard Controller and a single Orchard Worker on your local mac
 
 You can interact with the newly created cluster using the `orchard` CLI or programmatically, through the built-in REST API server.
 
+To check new workers before they accept VMs, run `orchard set cluster-settings --workers-start-paused`.
+Resume each ready worker with `orchard resume worker <name>`. Existing workers keep their scheduling state.
+Use `--workers-start-paused=false` to restore the default for future registrations.
+
 Please check out the [official documentation](https://tart.run/orchard/quick-start/) for more information and/or feel free to use [issues](https://github.com/cirruslabs/orchard/issues) for the remaining questions.

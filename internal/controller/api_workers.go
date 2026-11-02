@@ -51,12 +51,21 @@ func (controller *Controller) createWorker(ctx *gin.Context) responder.Responder
 		dbWorker, err := txn.GetWorker(worker.Name)
 		if err != nil {
 			if errors.Is(err, storepkg.ErrNotFound) {
-				// Create a new worker
-				if err := txn.SetWorker(worker); err != nil {
+				settings, err := txn.GetClusterSettings()
+				if err != nil {
 					return responder.Error(err)
 				}
 
-				return responder.JSON(200, worker)
+				// Keep the request unchanged if a transaction conflict retries registration.
+				newWorker := worker
+				newWorker.SchedulingPaused = worker.SchedulingPaused || settings.WorkersStartPaused
+
+				// Create a new worker
+				if err := txn.SetWorker(newWorker); err != nil {
+					return responder.Error(err)
+				}
+
+				return responder.JSON(200, newWorker)
 			}
 
 			controller.logger.Errorf("failed to check if the worker "+

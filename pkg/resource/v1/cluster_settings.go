@@ -10,8 +10,9 @@ const (
 )
 
 type ClusterSettings struct {
-	HostDirPolicies  []HostDirPolicy  `json:"hostDirPolicies,omitempty"`
-	SchedulerProfile SchedulerProfile `json:"schedulerProfile,omitempty"`
+	HostDirPolicies    []HostDirPolicy  `json:"hostDirPolicies,omitempty"`
+	SchedulerProfile   SchedulerProfile `json:"schedulerProfile,omitempty"`
+	WorkersStartPaused bool             `json:"workersStartPaused,omitempty"`
 }
 
 func (clusterSettings *ClusterSettings) SetVersion(_ uint64) {}
