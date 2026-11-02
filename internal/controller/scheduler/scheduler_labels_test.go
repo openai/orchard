@@ -33,6 +33,7 @@ func (store *beforeUpdateStore) Update(callback func(storepkg.Transaction) error
 func TestSchedulingLoopRechecksWorkerLabels(t *testing.T) {
 	const labelKey = "pool"
 	const labelValue = "required"
+	const workerName = "worker-a"
 
 	for _, test := range []struct {
 		name      string
@@ -50,7 +51,7 @@ func TestSchedulingLoopRechecksWorkerLabels(t *testing.T) {
 			require.NoError(t, err)
 
 			var worker v1.Worker
-			worker.Name = "worker-a"
+			worker.Name = workerName
 			worker.LastSeen = time.Now()
 			worker.MachineID = "machine-a"
 			worker.Resources = v1.Resources{v1.ResourceTartVMs: 2}
