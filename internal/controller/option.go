@@ -66,6 +66,12 @@ func WithWorkerOfflineTimeout(workerOfflineTimeout time.Duration) Option {
 	}
 }
 
+func WithWorkersStartPaused() Option {
+	return func(controller *Controller) {
+		controller.workersStartPaused = true
+	}
+}
+
 func WithExecSSHConnectionKeepaliveInterval(execSSHConnectionKeepaliveInterval time.Duration) Option {
 	return func(controller *Controller) {
 		controller.execSSHConnectionKeepaliveInterval = execSSHConnectionKeepaliveInterval

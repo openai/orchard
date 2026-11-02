@@ -23,31 +23,49 @@ func TestCreateWorkerSchedulingPaused(t *testing.T) {
 		Name:  "test-admin",
 		Token: "test-token",
 		Roles: []v1.ServiceAccountRole{
-			v1.ServiceAccountRoleAdminRead,
-			v1.ServiceAccountRoleAdminWrite,
 			v1.ServiceAccountRoleComputeRead,
 			v1.ServiceAccountRoleComputeWrite,
 		},
 	}
+
 	require.NoError(t, store.Update(func(txn storepkg.Transaction) error {
 		return txn.SetServiceAccount(&account)
 	}))
 
-	controller := &Controller{
-		store:  store,
-		logger: logger,
-	}
-	server := httptest.NewServer(controller.initAPI())
-	t.Cleanup(server.Close)
+	var server *httptest.Server
 
-	apiClient, err := client.New(
-		client.WithAddress(server.URL),
-		client.WithCredentials(account.Name, account.Token),
-		client.WithHTTPClient(server.Client()),
-	)
-	require.NoError(t, err)
+	startController := func(startPaused bool) *client.Client {
+		t.Helper()
+
+		if server != nil {
+			server.Close()
+		}
+
+		controller := &Controller{
+			store:  store,
+			logger: logger,
+		}
+
+		if startPaused {
+			WithWorkersStartPaused()(controller)
+		}
+
+		server = httptest.NewServer(controller.initAPI())
+		t.Cleanup(server.Close)
+
+		apiClient, err := client.New(
+			client.WithAddress(server.URL),
+			client.WithCredentials(account.Name, account.Token),
+			client.WithHTTPClient(server.Client()),
+		)
+		require.NoError(t, err)
+
+		return apiClient
+	}
 
 	ctx := t.Context()
+	apiClient := startController(false)
+
 	register := func(name string, paused bool) *v1.Worker {
 		t.Helper()
 
@@ -64,17 +82,10 @@ func TestCreateWorkerSchedulingPaused(t *testing.T) {
 		return worker
 	}
 
-	require.NoError(t, apiClient.ClusterSettings().Set(ctx, &v1.ClusterSettings{}))
 	require.False(t, register("existing-worker", false).SchedulingPaused)
 	require.True(t, register("explicitly-paused-worker", true).SchedulingPaused)
 
-	require.NoError(t, apiClient.ClusterSettings().Set(ctx, &v1.ClusterSettings{
-		WorkersStartPaused: true,
-	}))
-
-	settings, err := apiClient.ClusterSettings().Get(ctx)
-	require.NoError(t, err)
-	require.True(t, settings.WorkersStartPaused)
+	apiClient = startController(true)
 
 	// Enabling the policy must not pause an existing worker on reconnect.
 	require.False(t, register("existing-worker", true).SchedulingPaused)
@@ -90,7 +101,8 @@ func TestCreateWorkerSchedulingPaused(t *testing.T) {
 	require.False(t, register("new-worker", false).SchedulingPaused)
 
 	// Disabling the policy affects future registrations, not paused workers.
-	require.NoError(t, apiClient.ClusterSettings().Set(ctx, &v1.ClusterSettings{}))
+	apiClient = startController(false)
+
 	require.False(t, register("later-worker", false).SchedulingPaused)
 	require.True(t, register("explicitly-paused-worker", false).SchedulingPaused)
 }

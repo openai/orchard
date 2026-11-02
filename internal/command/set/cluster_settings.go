@@ -3,7 +3,6 @@ package set
 import (
 	"errors"
 	"fmt"
-
 	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/spf13/cobra"
@@ -13,12 +12,10 @@ var ErrClusterSettingsFailed = errors.New("failed to set cluster settings")
 
 var hostDirPoliciesRaw []string
 var schedulerProfileRaw string
-var workersStartPaused bool
 
 const (
-	hostDirPoliciesFlag    = "host-dir-policies"
-	schedulerProfileFlag   = "scheduler-profile"
-	workersStartPausedFlag = "workers-start-paused"
+	hostDirPoliciesFlag  = "host-dir-policies"
+	schedulerProfileFlag = "scheduler-profile"
 )
 
 func newSetClusterSettingsCommand() *cobra.Command {
@@ -43,8 +40,6 @@ falling back to more busier workers
 
 `, schedulerProfileFlag, v1.SchedulerProfileOptimizeUtilization, schedulerProfileFlag,
 		v1.SchedulerProfileDistributeLoad))
-	cmd.Flags().BoolVar(&workersStartPaused, workersStartPausedFlag, false,
-		"pause scheduling on newly registered workers until explicitly resumed")
 
 	return cmd
 }
@@ -82,11 +77,6 @@ func runSetClusterSettings(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		needUpdate = true
-	}
-
-	if cmd.Flag(workersStartPausedFlag).Changed {
-		clusterSettings.WorkersStartPaused = workersStartPaused
 		needUpdate = true
 	}
 

@@ -43,6 +43,7 @@ func (controller *Controller) createWorker(ctx *gin.Context) responder.Responder
 		worker.LastSeen = currentTime
 	}
 	worker.CreatedAt = currentTime
+	worker.SchedulingPaused = worker.SchedulingPaused || controller.workersStartPaused
 
 	return controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
 		// In case there already exist a worker with the same name,
@@ -51,21 +52,12 @@ func (controller *Controller) createWorker(ctx *gin.Context) responder.Responder
 		dbWorker, err := txn.GetWorker(worker.Name)
 		if err != nil {
 			if errors.Is(err, storepkg.ErrNotFound) {
-				settings, err := txn.GetClusterSettings()
-				if err != nil {
-					return responder.Error(err)
-				}
-
-				// Keep the request unchanged if a transaction conflict retries registration.
-				newWorker := worker
-				newWorker.SchedulingPaused = worker.SchedulingPaused || settings.WorkersStartPaused
-
 				// Create a new worker
-				if err := txn.SetWorker(newWorker); err != nil {
+				if err := txn.SetWorker(worker); err != nil {
 					return responder.Error(err)
 				}
 
-				return responder.JSON(200, newWorker)
+				return responder.JSON(200, worker)
 			}
 
 			controller.logger.Errorf("failed to check if the worker "+

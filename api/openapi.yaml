@@ -1243,12 +1243,6 @@ components:
       title: Cluster settings
       type: object
       properties:
-        workersStartPaused:
-          type: boolean
-          default: false
-          description: |
-            Pause scheduling on newly registered workers until explicitly resumed.
-            Existing workers retain their scheduling state when they reconnect.
         hostDirPolicies:
           type: array
           description: |
