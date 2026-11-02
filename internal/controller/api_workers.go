@@ -43,6 +43,7 @@ func (controller *Controller) createWorker(ctx *gin.Context) responder.Responder
 		worker.LastSeen = currentTime
 	}
 	worker.CreatedAt = currentTime
+	worker.SchedulingPaused = worker.SchedulingPaused || controller.workersStartPaused
 
 	return controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
 		// In case there already exist a worker with the same name,

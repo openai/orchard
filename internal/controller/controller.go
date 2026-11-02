@@ -56,6 +56,7 @@ type Controller struct {
 	ipRendezvous                       *rendezvous.Rendezvous[rendezvous.ResultWithErrorMessage[string]]
 	enableSwaggerDocs                  bool
 	workerOfflineTimeout               time.Duration
+	workersStartPaused                 bool
 	execSSHConnectionKeepaliveInterval time.Duration
 	experimentalRPCV2                  bool
 	disableDBCompression               bool

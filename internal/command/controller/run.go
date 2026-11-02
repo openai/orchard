@@ -36,6 +36,7 @@ var noExperimentalRPCV2 bool
 var experimentalPingInterval time.Duration
 var experimentalDisableDBCompression bool
 var workerOfflineTimeout time.Duration
+var workersStartPaused bool
 var execSSHConnectionKeepaliveInterval time.Duration
 var synthetic bool
 
@@ -91,6 +92,8 @@ func newRunCommand() *cobra.Command {
 		"duration (e.g. 60s or 5m30s) after which a worker is considered offline for the purposes "+
 			"of scheduling (no new VMs will be scheduled on such worker and already assigned VMs will be "+
 			"marked as failed)")
+	cmd.Flags().BoolVar(&workersStartPaused, "workers-start-paused", false,
+		"pause scheduling on newly registered workers until explicitly resumed")
 	cmd.Flags().DurationVar(&execSSHConnectionKeepaliveInterval, "exec-ssh-connection-keepalive-interval", 30*time.Second,
 		"interval between SSH keepalive requests sent by the controller for shared exec connections")
 
@@ -167,6 +170,10 @@ func runController(cmd *cobra.Command, args []string) (err error) {
 
 	if insecureAllowHostDirs {
 		controllerOpts = append(controllerOpts, controller.WithInsecureAllowHostDirs())
+	}
+
+	if workersStartPaused {
+		controllerOpts = append(controllerOpts, controller.WithWorkersStartPaused())
 	}
 
 	var controllerCert tls.Certificate
