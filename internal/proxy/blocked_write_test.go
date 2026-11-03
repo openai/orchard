@@ -176,34 +176,40 @@ func TestConnectionsPreservesUnexpectedCloseError(t *testing.T) {
 	}
 }
 
-// eofWritePeer reports a failed Write before either proxy endpoint closes.
+// failingWritePeer reports a failed Write before either proxy endpoint closes.
 // Its reverse Read remains blocked until shutdown to make the failure first.
-type eofWritePeer struct {
+type failingWritePeer struct {
 	closed chan struct{}
 	once   sync.Once
 	err    error
 }
 
-func (peer *eofWritePeer) Read([]byte) (int, error) {
+func (peer *failingWritePeer) Read([]byte) (int, error) {
 	<-peer.closed
 	return 0, net.ErrClosed
 }
-func (peer *eofWritePeer) Write([]byte) (int, error) { return 0, peer.err }
-func (peer *eofWritePeer) Close() error {
+func (peer *failingWritePeer) Write([]byte) (int, error) { return 0, peer.err }
+func (peer *failingWritePeer) Close() error {
 	peer.once.Do(func() { close(peer.closed) })
 	return nil
 }
 
-func TestConnectionsPreservesEOFReturnedByWriteBeforeShutdown(t *testing.T) {
+func TestConnectionsPreservesWriteErrorsBeforeShutdown(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
-		for _, writeErr := range []error{io.EOF, fmt.Errorf("write failed: %w", io.EOF)} {
+		for _, writeErr := range []error{
+			io.EOF,
+			fmt.Errorf("write failed: %w", io.EOF),
+			net.ErrClosed,
+			fmt.Errorf("write failed: %w", net.ErrClosed),
+			errors.New("write failed: use of closed network connection"),
+		} {
 			name := writeErr.Error()
 			if reverse {
 				name += "/reversed"
 			}
 			t.Run(name, func(t *testing.T) {
 				source := &sendingPeer{Reader: bytes.NewReader([]byte("unwritten payload")), closed: make(chan struct{})}
-				destination := &eofWritePeer{closed: make(chan struct{}), err: writeErr}
+				destination := &failingWritePeer{closed: make(chan struct{}), err: writeErr}
 				t.Cleanup(func() { _ = source.Close(); _ = destination.Close() })
 				result := make(chan error, 1)
 				go func() {
@@ -215,9 +221,9 @@ func TestConnectionsPreservesEOFReturnedByWriteBeforeShutdown(t *testing.T) {
 				}()
 				select {
 				case err := <-result:
-					require.ErrorIs(t, err, io.EOF)
+					require.EqualError(t, err, writeErr.Error())
 				case <-time.After(time.Second):
-					t.Fatal("proxy did not report a pre-shutdown write EOF")
+					t.Fatal("proxy did not report a pre-shutdown write error")
 				}
 			})
 		}
