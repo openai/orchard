@@ -248,17 +248,30 @@ func (vm *VM) Shell(
 	}
 	var outputReaderWG sync.WaitGroup
 	var consumeLineMutex sync.Mutex
+	var outputErrorOnce sync.Once
+	var outputError error
 	outputReaderWG.Add(2)
-	for _, output := range []io.Reader{stdout, stderr} {
+	for _, stream := range []struct {
+		name   string
+		reader io.Reader
+	}{{"stdout", stdout}, {"stderr", stderr}} {
 		go func() {
 			defer outputReaderWG.Done()
-			scanner := bufio.NewScanner(output)
+			scanner := bufio.NewScanner(stream.reader)
 
 			for scanner.Scan() {
 				// Drain both SSH streams while preserving serialized callbacks.
 				consumeLineMutex.Lock()
 				consumeLine(scanner.Text())
 				consumeLineMutex.Unlock()
+			}
+			if err := scanner.Err(); err != nil {
+				outputErrorOnce.Do(func() {
+					outputError = fmt.Errorf("%w: reading SSH %s: %v", ErrVMFailed, stream.name, err)
+					// A failed scanner stops consuming its SSH channel. Close the
+					// session so the peer stream cannot block behind its buffer.
+					_ = sess.Close()
+				})
 			}
 		}()
 	}
@@ -279,6 +292,9 @@ func (vm *VM) Shell(
 		return fmt.Errorf("%w: failed to start script: %v", ErrVMFailed, err)
 	}
 	outputReaderWG.Wait()
+	if outputError != nil {
+		return outputError
+	}
 	return sess.Wait()
 }
 

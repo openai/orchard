@@ -37,9 +37,10 @@ func (dialer shellTestDialer) DialContext(ctx context.Context, network, _ string
 
 func TestShellDrainsBothSSHStreams(t *testing.T) {
 	for _, scenario := range []struct {
-		name           string
-		stdout, stderr int
-		exit           uint32
+		name            string
+		stdout, stderr  int
+		exit            uint32
+		oversizedStream string
 	}{
 		{name: "large stderr", stdout: 1, stderr: 4096},
 		{name: "large stdout", stdout: 4096, stderr: 1},
@@ -47,6 +48,8 @@ func TestShellDrainsBothSSHStreams(t *testing.T) {
 		{name: "small streams", stdout: 1, stderr: 1},
 		{name: "empty"},
 		{name: "exit status", stdout: 1, stderr: 1, exit: 7},
+		{name: "oversized stderr line", oversizedStream: "stderr"},
+		{name: "oversized stdout line", oversizedStream: "stdout"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			_, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -60,7 +63,7 @@ func TestShellDrainsBothSSHStreams(t *testing.T) {
 			defer listener.Close()
 			serverResult := make(chan error, 1)
 			go func() {
-				serverResult <- serveShellOutput(listener, config, scenario.stdout, scenario.stderr, scenario.exit)
+				serverResult <- serveShellOutput(listener, config, scenario.stdout, scenario.stderr, scenario.exit, scenario.oversizedStream)
 			}()
 			dialer := shellTestDialer{address: listener.Addr().String(), connected: make(chan net.Conn, 1)}
 			var outCount, errCount int
@@ -104,6 +107,19 @@ func TestShellDrainsBothSSHStreams(t *testing.T) {
 				}
 				t.Fatal("SSH script stalled while stderr was waiting for stdout to close")
 			}
+			if scenario.oversizedStream != "" {
+				require.ErrorIs(t, err, base.ErrVMFailed)
+				require.ErrorContains(t, err, "token too long")
+				require.ErrorContains(t, err, scenario.oversizedStream)
+				// The client deliberately closes the session; the server may
+				// observe EOF rather than a clean exit-status exchange.
+				select {
+				case <-serverResult:
+				case <-time.After(time.Second):
+					t.Fatal("SSH fixture did not exit after scanner failure")
+				}
+				return
+			}
 			if scenario.exit == 0 {
 				require.NoError(t, err)
 			} else {
@@ -119,7 +135,7 @@ func TestShellDrainsBothSSHStreams(t *testing.T) {
 	}
 }
 
-func serveShellOutput(listener net.Listener, config *ssh.ServerConfig, stdout, stderr int, exit uint32) error {
+func serveShellOutput(listener net.Listener, config *ssh.ServerConfig, stdout, stderr int, exit uint32, oversizedStream string) error {
 	connection, err := listener.Accept()
 	if err != nil {
 		return err
@@ -154,6 +170,17 @@ func serveShellOutput(listener net.Listener, config *ssh.ServerConfig, stdout, s
 		}
 		if string(input) != "fixture\n" {
 			return errors.New("unexpected synthetic script")
+		}
+		if oversizedStream != "" {
+			var writer io.Writer = channel
+			if oversizedStream == "stderr" {
+				writer = channel.Stderr()
+			}
+			// Above Scanner's default maximum token size (64 KiB).
+			_, err := io.WriteString(writer, strings.Repeat("x", 70*1024)+"\n")
+			if err != nil {
+				return err
+			}
 		}
 		stderrText := strings.Repeat("stderr:"+strings.Repeat("x", 1016)+"\n", stderr)
 		if _, err := io.WriteString(channel.Stderr(), stderrText); err != nil {
