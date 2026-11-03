@@ -247,17 +247,34 @@ func (vm *VM) Shell(
 		return fmt.Errorf("%w: while opening stderr pipe: %v", ErrVMFailed, err)
 	}
 	var outputReaderWG sync.WaitGroup
-	outputReaderWG.Add(1)
-	go func() {
-		output := io.MultiReader(stdout, stderr)
+	var consumeLineMutex sync.Mutex
+	var outputErrorOnce sync.Once
+	var outputError error
+	outputReaderWG.Add(2)
+	for _, stream := range []struct {
+		name   string
+		reader io.Reader
+	}{{"stdout", stdout}, {"stderr", stderr}} {
+		go func() {
+			defer outputReaderWG.Done()
+			scanner := bufio.NewScanner(stream.reader)
 
-		scanner := bufio.NewScanner(output)
-
-		for scanner.Scan() {
-			consumeLine(scanner.Text())
-		}
-		outputReaderWG.Done()
-	}()
+			for scanner.Scan() {
+				// Drain both SSH streams while preserving serialized callbacks.
+				consumeLineMutex.Lock()
+				consumeLine(scanner.Text())
+				consumeLineMutex.Unlock()
+			}
+			if err := scanner.Err(); err != nil {
+				outputErrorOnce.Do(func() {
+					outputError = fmt.Errorf("%w: reading SSH %s: %v", ErrVMFailed, stream.name, err)
+					// A failed scanner stops consuming its SSH channel. Close the
+					// session so the peer stream cannot block behind its buffer.
+					_ = sess.Close()
+				})
+			}
+		}()
+	}
 
 	stdinBuf, err := sess.StdinPipe()
 	if err != nil {
@@ -275,6 +292,9 @@ func (vm *VM) Shell(
 		return fmt.Errorf("%w: failed to start script: %v", ErrVMFailed, err)
 	}
 	outputReaderWG.Wait()
+	if outputError != nil {
+		return outputError
+	}
 	return sess.Wait()
 }
 
