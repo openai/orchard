@@ -26,16 +26,22 @@ func Connections(left io.ReadWriteCloser, right io.ReadWriteCloser) (finalErr er
 	leftErrCh := make(chan error, 1)
 	rightErrCh := make(chan error, 1)
 
-	// SSH channels can report EOF from Close after their peer has already
-	// completed a normal close handshake. Errors caused by closing the other
-	// copy's connection are also expected during fallback shutdown.
+	// Preserve EOF from a copy's Write: it means bytes were not delivered.
+	// Errors caused by shutting down the other copy are expected.
 	recordErr := func(newErr error) {
-		if newErr == nil || errors.Is(newErr, io.EOF) || errors.Is(newErr, net.ErrClosed) ||
+		if newErr == nil || errors.Is(newErr, net.ErrClosed) ||
 			strings.Contains(newErr.Error(), "use of closed network connection") {
 			return
 		}
 		if finalErr == nil {
 			finalErr = newErr
+		}
+	}
+	// A normal SSH close can return EOF. The second copy may also report
+	// EOF from a blocked Write that was interrupted by that close.
+	recordShutdownErr := func(newErr error) {
+		if !errors.Is(newErr, io.EOF) {
+			recordErr(newErr)
 		}
 	}
 
@@ -54,14 +60,14 @@ func Connections(left io.ReadWriteCloser, right io.ReadWriteCloser) (finalErr er
 	select {
 	case err := <-rightErrCh:
 		recordErr(err)
-		recordErr(left.Close())
-		recordErr(right.Close())
-		recordErr(<-leftErrCh)
+		recordShutdownErr(left.Close())
+		recordShutdownErr(right.Close())
+		recordShutdownErr(<-leftErrCh)
 	case err := <-leftErrCh:
 		recordErr(err)
-		recordErr(right.Close())
-		recordErr(left.Close())
-		recordErr(<-rightErrCh)
+		recordShutdownErr(right.Close())
+		recordShutdownErr(left.Close())
+		recordShutdownErr(<-rightErrCh)
 	}
 
 	return finalErr

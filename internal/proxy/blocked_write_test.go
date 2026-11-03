@@ -175,3 +175,51 @@ func TestConnectionsPreservesUnexpectedCloseError(t *testing.T) {
 		t.Fatal("proxy did not finish after close error")
 	}
 }
+
+// eofWritePeer reports a failed Write before either proxy endpoint closes.
+// Its reverse Read remains blocked until shutdown to make the failure first.
+type eofWritePeer struct {
+	closed chan struct{}
+	once   sync.Once
+	err    error
+}
+
+func (peer *eofWritePeer) Read([]byte) (int, error) {
+	<-peer.closed
+	return 0, net.ErrClosed
+}
+func (peer *eofWritePeer) Write([]byte) (int, error) { return 0, peer.err }
+func (peer *eofWritePeer) Close() error {
+	peer.once.Do(func() { close(peer.closed) })
+	return nil
+}
+
+func TestConnectionsPreservesEOFReturnedByWriteBeforeShutdown(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		for _, writeErr := range []error{io.EOF, fmt.Errorf("write failed: %w", io.EOF)} {
+			name := writeErr.Error()
+			if reverse {
+				name += "/reversed"
+			}
+			t.Run(name, func(t *testing.T) {
+				source := &sendingPeer{Reader: bytes.NewReader([]byte("unwritten payload")), closed: make(chan struct{})}
+				destination := &eofWritePeer{closed: make(chan struct{}), err: writeErr}
+				t.Cleanup(func() { _ = source.Close(); _ = destination.Close() })
+				result := make(chan error, 1)
+				go func() {
+					if reverse {
+						result <- proxy.Connections(destination, source)
+					} else {
+						result <- proxy.Connections(source, destination)
+					}
+				}()
+				select {
+				case err := <-result:
+					require.ErrorIs(t, err, io.EOF)
+				case <-time.After(time.Second):
+					t.Fatal("proxy did not report a pre-shutdown write EOF")
+				}
+			})
+		}
+	}
+}
