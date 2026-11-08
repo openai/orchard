@@ -237,10 +237,40 @@ func TestCreateWorkerInvalidAddress(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestInitAPIInvalidTrustedProxies(t *testing.T) {
-	controller := &Controller{logger: zap.NewNop().Sugar()}
-	WithTrustedProxies([]string{"not-an-ip"})(controller)
+func TestNewInvalidTrustedProxiesReleasesResources(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	listenAddr := listener.Addr().String()
+	require.NoError(t, listener.Close())
 
-	_, err := controller.initAPI()
+	dataDir, err := NewDataDir(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = New(
+		WithDataDir(dataDir),
+		WithListenAddr(listenAddr),
+		WithTrustedProxies([]string{"not-an-ip"}),
+	)
+	require.ErrorIs(t, err, ErrInitFailed)
+
+	listener, err = net.Listen("tcp", listenAddr)
+	require.NoError(t, err)
+	require.NoError(t, listener.Close())
+}
+
+func TestNewListenFailureReleasesStore(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = occupied.Close() })
+
+	dataDir, err := NewDataDir(t.TempDir())
+	require.NoError(t, err)
+
+	_, err = New(WithDataDir(dataDir), WithListenAddr(occupied.Addr().String()))
 	require.Error(t, err)
+
+	controller, err := New(WithDataDir(dataDir), WithListenAddr("127.0.0.1:0"))
+	require.NoError(t, err)
+	require.NoError(t, controller.listener.Close())
+	require.NoError(t, controller.store.Close())
 }

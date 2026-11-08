@@ -23,6 +23,7 @@ type Store interface {
 	View(cb func(txn Transaction) error) error
 	Update(cb func(txn Transaction) error) error
 	WatchVM(ctx context.Context, vmName string) (chan WatchMessage[v1.VM], chan error, error)
+	Close() error
 }
 
 type Transaction interface {
