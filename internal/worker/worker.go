@@ -72,6 +72,8 @@ type Worker struct {
 	defaultCPU    uint64
 	defaultMemory uint64
 
+	advertiseAddress string
+
 	runtime runtime.Runtime
 
 	softnetPolicyUpdates mo.Option[bool]
@@ -457,6 +459,7 @@ func (worker *Worker) registerWorker(ctx context.Context) error {
 		Labels:        worker.labels,
 		LastSeen:      time.Now(),
 		MachineID:     platformUUID,
+		Address:       worker.advertiseAddress,
 		DefaultCPU:    worker.defaultCPU,
 		DefaultMemory: worker.defaultMemory,
 		Capabilities: lo.Ternary(worker.runtime.ID() == v1.RuntimeTart || worker.runtime.Synthetic(),

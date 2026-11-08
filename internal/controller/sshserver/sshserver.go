@@ -69,6 +69,11 @@ func NewSSHServer(
 	return server, nil
 }
 
+// Close stops accepting SSH connections.
+func (server *SSHServer) Close() error {
+	return server.listener.Close()
+}
+
 func (server *SSHServer) Run() {
 	for {
 		conn, err := server.listener.Accept()

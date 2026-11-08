@@ -1,6 +1,12 @@
 package v1
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"net"
+	"strings"
+	"time"
+)
 
 type Worker struct {
 	// LastSeen is set by the Worker and is used by the Controller
@@ -8,6 +14,10 @@ type Worker struct {
 	LastSeen time.Time `json:"last_seen,omitempty"`
 
 	MachineID string `json:"machine_id,omitempty"`
+
+	// Address is the host (IP address or hostname, without a port)
+	// on which this Worker can be reached, e.g. to connect to VM endpoints.
+	Address string `json:"address,omitempty"`
 
 	SchedulingPaused bool `json:"scheduling_paused,omitempty"`
 
@@ -33,6 +43,49 @@ type Worker struct {
 	Capabilities WorkerCapabilities `json:"capabilities,omitempty"`
 
 	Meta
+}
+
+var ErrInvalidWorkerAddress = errors.New("invalid worker address")
+
+// ValidateWorkerAddress ensures that the address is a bare host
+// (an IP address or a hostname) and doesn't include a port.
+func ValidateWorkerAddress(address string) error {
+	if address == "" {
+		return fmt.Errorf("%w: address cannot be empty", ErrInvalidWorkerAddress)
+	}
+
+	if net.ParseIP(address) != nil {
+		return nil
+	}
+
+	if !isValidHostname(address) {
+		return fmt.Errorf("%w: %q must be an IP address or a hostname without a port",
+			ErrInvalidWorkerAddress, address)
+	}
+
+	return nil
+}
+
+func isValidHostname(hostname string) bool {
+	if len(hostname) > 253 {
+		return false
+	}
+
+	for label := range strings.SplitSeq(strings.TrimSuffix(hostname, "."), ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+
+		for _, char := range label {
+			isAlphanumeric := (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+				(char >= '0' && char <= '9')
+			if !isAlphanumeric && char != '-' {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func (worker Worker) Offline(workerOfflineTimeout time.Duration) bool {

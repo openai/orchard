@@ -70,6 +70,7 @@ func runGetWorker(cmd *cobra.Command, args []string) error {
 	table.AddRow("Last seen", lastSeenInfo)
 
 	table.AddRow("Machine ID", worker.MachineID)
+	table.AddRow("Address", nonEmptyOrNone(worker.Address))
 	table.AddRow("Scheduling paused", worker.SchedulingPaused)
 	table.AddRow("Default CPU", worker.DefaultCPU)
 	table.AddRow("Default memory", worker.DefaultCPU)
