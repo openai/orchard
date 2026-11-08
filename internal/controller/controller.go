@@ -57,6 +57,7 @@ type Controller struct {
 	enableSwaggerDocs                  bool
 	workerOfflineTimeout               time.Duration
 	workersStartPaused                 bool
+	trustedProxies                     []string
 	execSSHConnectionKeepaliveInterval time.Duration
 	experimentalRPCV2                  bool
 	disableDBCompression               bool
@@ -143,7 +144,10 @@ func New(opts ...Option) (*Controller, error) {
 		controller.listener = listener
 	}
 
-	apiServer := controller.initAPI()
+	apiServer, err := controller.initAPI()
+	if err != nil {
+		return nil, err
+	}
 
 	controller.grpcServer = grpc.NewServer(
 		grpc.KeepaliveParams(keepalive.ServerParameters{

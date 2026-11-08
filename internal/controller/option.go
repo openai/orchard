@@ -72,6 +72,14 @@ func WithWorkersStartPaused() Option {
 	}
 }
 
+// WithTrustedProxies sets the proxies whose X-Forwarded-For and X-Real-IP
+// headers are trusted when determining the client's address.
+func WithTrustedProxies(trustedProxies []string) Option {
+	return func(controller *Controller) {
+		controller.trustedProxies = trustedProxies
+	}
+}
+
 func WithExecSSHConnectionKeepaliveInterval(execSSHConnectionKeepaliveInterval time.Duration) Option {
 	return func(controller *Controller) {
 		controller.execSSHConnectionKeepaliveInterval = execSSHConnectionKeepaliveInterval

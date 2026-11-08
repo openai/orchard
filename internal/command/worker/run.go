@@ -47,6 +47,7 @@ var defaultCPU uint64
 var defaultMemory uint64
 var username string
 var addressPprof string
+var advertiseAddress string
 var debug bool
 var experimentalVMStopTimeout uint16
 
@@ -86,6 +87,9 @@ func newRunCommand() *cobra.Command {
 		"(\"Local Network\" permission workaround: requires starting \"orchard worker run\" as \"root\", "+
 		"the privileges will be then dropped to the specified user after starting the \"orchard localnetworkhelper\" "+
 		"helper process)")
+	cmd.Flags().StringVar(&advertiseAddress, "advertise-address", "",
+		"IP address or hostname (without a port) on which this worker is reachable, "+
+			"reported to the controller instead of the address it observes for this worker")
 	cmd.Flags().StringVar(&addressPprof, "listen-pprof", "",
 		"start pprof HTTP server on localhost:6060 for diagnostic purposes (e.g. \"localhost:6060\")")
 	cmd.Flags().BoolVar(&debug, "debug", false, "enable debug logging")
@@ -162,6 +166,14 @@ func runWorker(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("%w: %v", ErrRunFailed, err)
 	}
 	workerOpts = append(workerOpts, worker.WithResources(resources))
+
+	if advertiseAddress != "" {
+		if err := v1.ValidateWorkerAddress(advertiseAddress); err != nil {
+			return fmt.Errorf("%w: %v", ErrRunFailed, err)
+		}
+
+		workerOpts = append(workerOpts, worker.WithAdvertiseAddress(advertiseAddress))
+	}
 
 	if trustedCertificate := bootstrapToken.Certificate(); trustedCertificate != nil {
 		clientOpts = append(clientOpts, client.WithTrustedCertificate(trustedCertificate))

@@ -41,6 +41,12 @@ func WithDefaultCPUAndMemory(defaultCPU uint64, defaultMemory uint64) Option {
 	}
 }
 
+func WithAdvertiseAddress(address string) Option {
+	return func(worker *Worker) {
+		worker.advertiseAddress = address
+	}
+}
+
 func WithDialer(dialer dialer.Dialer) Option {
 	return func(worker *Worker) {
 		worker.dialer = dialer
