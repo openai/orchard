@@ -2,22 +2,119 @@ package client_test
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cirruslabs/orchard/internal/config"
 	"github.com/cirruslabs/orchard/pkg/client"
+	"github.com/cirruslabs/orchard/rpc"
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const requestTimeout = 5 * time.Second
+
+func TestWithCredentialsAndDefaultContext(t *testing.T) {
+	const (
+		explicitName  = "alice"
+		explicitToken = "alice-token"
+		defaultName   = "bob"
+		defaultToken  = "bob-token"
+	)
+
+	for _, tc := range []struct {
+		name                string
+		contextName         string
+		contextToken        string
+		envCredentials      bool
+		opts                []client.Option
+		wantName, wantToken string
+	}{
+		{
+			name:     "explicit credentials with address-only context",
+			opts:     []client.Option{client.WithCredentials(explicitName, explicitToken)},
+			wantName: explicitName, wantToken: explicitToken,
+		},
+		{
+			name:        "explicit credentials override context",
+			contextName: defaultName, contextToken: defaultToken,
+			opts:     []client.Option{client.WithCredentials(explicitName, explicitToken)},
+			wantName: explicitName, wantToken: explicitToken,
+		},
+		{
+			name:        "explicit credentials override environment",
+			contextName: defaultName, contextToken: defaultToken, envCredentials: true,
+			opts:     []client.Option{client.WithCredentials(explicitName, explicitToken)},
+			wantName: explicitName, wantToken: explicitToken,
+		},
+		{
+			name:        "context credentials are defaults",
+			contextName: defaultName, contextToken: defaultToken,
+			wantName: defaultName, wantToken: defaultToken,
+		},
+		{
+			name:        "environment credentials are defaults",
+			contextName: defaultName, contextToken: defaultToken, envCredentials: true,
+			wantName: "env-account", wantToken: "env-token",
+		},
+		{
+			name:        "incomplete explicit credentials are not mixed with defaults",
+			contextName: defaultName, contextToken: defaultToken,
+			opts: []client.Option{client.WithCredentials(explicitName, "")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ORCHARD_HOME", t.TempDir())
+			for _, name := range []string{
+				config.OrchardURL,
+				config.OrchardServiceAccountName,
+				config.OrchardServiceAccountToken,
+			} {
+				t.Setenv(name, "")
+				require.NoError(t, os.Unsetenv(name))
+			}
+			if tc.envCredentials {
+				t.Setenv(config.OrchardServiceAccountName, "env-account")
+				t.Setenv(config.OrchardServiceAccountToken, "env-token")
+			}
+
+			wantAuth := ""
+			if tc.wantName != "" {
+				wantAuth = "Basic " + base64.StdEncoding.EncodeToString([]byte(tc.wantName+":"+tc.wantToken))
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, wantAuth, r.Header.Get("Authorization"))
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(server.Close)
+			handle, err := config.NewHandle()
+			require.NoError(t, err)
+			require.NoError(t, handle.CreateContext("default", config.Context{
+				URL: server.URL, ServiceAccountName: tc.contextName, ServiceAccountToken: tc.contextToken,
+			}, false))
+
+			controller, err := client.New(tc.opts...)
+			require.NoError(t, err)
+			require.NoError(t, controller.Check(t.Context()))
+			metadata := controller.GPRCMetadata()
+			if tc.wantName == "" {
+				assert.Empty(t, metadata)
+			} else {
+				assert.Equal(t, []string{tc.wantName}, metadata.Get(rpc.MetadataServiceAccountNameKey))
+				assert.Equal(t, []string{tc.wantToken}, metadata.Get(rpc.MetadataServiceAccountTokenKey))
+			}
+		})
+	}
+}
 
 func TestWithHTTPClientControlsRedirectsAndConnections(t *testing.T) {
 	var calls atomic.Int32
