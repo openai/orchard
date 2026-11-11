@@ -71,6 +71,11 @@ func TestWithCredentialsAndDefaultContext(t *testing.T) {
 			contextName: defaultName, contextToken: defaultToken,
 			opts: []client.Option{client.WithCredentials(explicitName, "")},
 		},
+		{
+			name:        "token-only explicit credentials are not mixed with defaults",
+			contextName: defaultName, contextToken: defaultToken,
+			opts: []client.Option{client.WithCredentials("", explicitToken)},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ORCHARD_HOME", t.TempDir())
