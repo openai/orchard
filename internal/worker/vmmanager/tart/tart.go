@@ -359,6 +359,10 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 		runArgs = append(runArgs, fmt.Sprintf("--net-bridged=%s", resource.NetBridged))
 	}
 
+	if resource.RootDiskOpts != "" {
+		runArgs = append(runArgs, fmt.Sprintf("--root-disk-opts=%s", resource.RootDiskOpts))
+	}
+
 	if resource.Headless {
 		runArgs = append(runArgs, "--no-graphics")
 	}
