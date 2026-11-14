@@ -33,6 +33,7 @@ type VM struct {
 	CPU             uint64          `json:"cpu,omitempty"`
 	Memory          uint64          `json:"memory,omitempty"`
 	DiskSize        uint64          `json:"diskSize,omitempty"`
+	RootDiskOpts    string          `json:"rootDiskOpts,omitempty"`
 	NetBridged      string          `json:"net-bridged,omitempty"`
 	Headless        bool            `json:"headless,omitempty"`
 	Nested          bool            `json:"nested,omitempty"`
@@ -182,6 +183,9 @@ func (vm *VM) Validate() error {
 		}
 		if vm.USBAccessories {
 			return unsupportedFieldError("usbAccessories")
+		}
+		if vm.RootDiskOpts != "" {
+			return unsupportedFieldError("rootDiskOpts")
 		}
 	}
 

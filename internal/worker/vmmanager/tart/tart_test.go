@@ -87,6 +87,36 @@ func TestRunUSBAccessoriesConfiguration(t *testing.T) {
 	}
 }
 
+func TestRunRootDiskOpts(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		rootDiskOpts string
+		wantFlags    string
+	}{
+		{name: "default"},
+		{name: "fsync", rootDiskOpts: "sync=fsync", wantFlags: "--root-disk-opts=sync=fsync "},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			commandLog := installCloneFakeTart(t, "", "")
+			vm := newCloneTestVM(v1.VM{
+				Name:           "test-vm",
+				UID:            "00112233-4455-6677-8899-aabbccddeeff",
+				RootDiskOpts:   test.rootDiskOpts,
+				Audio:          true,
+				Clipboard:      true,
+				USBAccessories: true,
+			})
+			vm.ctx = t.Context()
+			vm.ConditionsSet().Add(v1.ConditionTypeStopping)
+
+			vm.run(t.Context(), nil)
+
+			require.NoError(t, vm.Err())
+			requireCloneCommands(t, commandLog, []string{"run " + test.wantFlags + vm.id()})
+		})
+	}
+}
+
 func TestCloneAndConfigureConfiguresStoppedVM(t *testing.T) {
 	tests := []struct {
 		name     string
