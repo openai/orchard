@@ -89,9 +89,9 @@ func (controller *Controller) createVM(ctx *gin.Context) responder.Responder {
 		return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("%v", err))
 	}
 
-	// Softnet-specific logic: automatically enable Softnet when NetSoftnetAllow or NetSoftnetBlock are set
+	// Softnet-specific logic: automatically enable Softnet when a Softnet option is set
 	// and propagate deprecated and non-deprecated boolean fields into each other
-	if vm.NetSoftnetDeprecated || vm.NetSoftnet || len(vm.NetSoftnetAllow) != 0 || len(vm.NetSoftnetBlock) != 0 {
+	if vm.SoftnetEnabled() {
 		vm.NetSoftnetDeprecated = true
 		vm.NetSoftnet = true
 	}
@@ -222,9 +222,9 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 			return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid host processes: %v", err))
 		}
 
-		// Softnet-specific logic: automatically enable Softnet when NetSoftnetAllow or NetSoftnetBlock are set
+		// Softnet-specific logic: automatically enable Softnet when a Softnet option is set
 		// and propagate deprecated and non-deprecated boolean fields into each other
-		if userVM.NetSoftnetDeprecated || userVM.NetSoftnet || len(userVM.NetSoftnetAllow) != 0 || len(userVM.NetSoftnetBlock) != 0 {
+		if userVM.SoftnetEnabled() {
 			userVM.NetSoftnetDeprecated = true
 			userVM.NetSoftnet = true
 		}

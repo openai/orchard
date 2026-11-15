@@ -87,6 +87,27 @@ func TestRunUSBAccessoriesConfiguration(t *testing.T) {
 	}
 }
 
+func TestRunSoftnetSubnetPool(t *testing.T) {
+	commandLog := installCloneFakeTart(t, "", "")
+	vm := newCloneTestVM(v1.VM{
+		Name:                 "test-vm",
+		UID:                  "00112233-4455-6677-8899-aabbccddeeff",
+		Audio:                true,
+		Clipboard:            true,
+		NetSoftnetSubnetPool: []string{"192.168.64.0/18", "172.20.0.0/16"},
+	})
+	vm.ctx = t.Context()
+	vm.ConditionsSet().Add(v1.ConditionTypeStopping)
+
+	vm.run(t.Context(), nil)
+
+	require.NoError(t, vm.Err())
+	requireCloneCommands(t, commandLog, []string{
+		"run --net-softnet --net-softnet-subnet-pool 192.168.64.0/18,172.20.0.0/16 " +
+			"--no-usb-accessories " + vm.id(),
+	})
+}
+
 func TestCloneAndConfigureConfiguresStoppedVM(t *testing.T) {
 	tests := []struct {
 		name     string

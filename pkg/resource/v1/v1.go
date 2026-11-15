@@ -174,6 +174,9 @@ func (vm *VM) Validate() error {
 		if len(vm.NetSoftnetBlock) != 0 {
 			return unsupportedFieldError("netSoftnetBlock")
 		}
+		if len(vm.NetSoftnetSubnetPool) != 0 {
+			return unsupportedFieldError("netSoftnetSubnetPool")
+		}
 		if len(vm.HostDirs) != 0 {
 			return unsupportedFieldError("hostDirs")
 		}
@@ -213,6 +216,7 @@ type VMSpec struct {
 	NetSoftnet           bool           `json:"netSoftnet,omitempty"`
 	NetSoftnetAllow      []string       `json:"netSoftnetAllow,omitempty"`
 	NetSoftnetBlock      []string       `json:"netSoftnetBlock,omitempty"`
+	NetSoftnetSubnetPool []string       `json:"netSoftnetSubnetPool,omitempty"`
 	Suspendable          bool           `json:"suspendable,omitempty"`
 	USBAccessories       bool           `json:"usbAccessories,omitempty"`
 	PowerState           PowerState     `json:"powerState,omitempty"`
@@ -230,7 +234,8 @@ func (vm VMSpec) HostProcessesEqual(other VMSpec) bool {
 
 func (vm VMSpec) SoftnetEnabled() bool {
 	return vm.NetSoftnetDeprecated || vm.NetSoftnet ||
-		len(vm.NetSoftnetAllow) != 0 || len(vm.NetSoftnetBlock) != 0
+		len(vm.NetSoftnetAllow) != 0 || len(vm.NetSoftnetBlock) != 0 ||
+		len(vm.NetSoftnetSubnetPool) != 0
 }
 
 func (vm VMSpec) SoftnetPolicyChanged(other VMSpec) bool {

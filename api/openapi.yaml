@@ -729,6 +729,18 @@ components:
             - "66.66.0.0/16"
           items:
             type: string
+        netSoftnetSubnetPool:
+          type: array
+          description: |
+            Private IPv4 CIDRs from which Softnet allocates the guest `/29` subnet.
+
+            See `tart run`'s help for `--net-softnet-subnet-pool` for more details.
+
+            Enables `netSoftnet`. Changing this setting restarts a running VM.
+          example:
+            - "192.168.64.0/18"
+          items:
+            type: string
         usbAccessories:
           type: boolean
           description: |

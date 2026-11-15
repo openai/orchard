@@ -355,6 +355,9 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 	if len(resource.NetSoftnetBlock) != 0 {
 		runArgs = append(runArgs, "--net-softnet-block", strings.Join(resource.NetSoftnetBlock, ","))
 	}
+	if len(resource.NetSoftnetSubnetPool) != 0 {
+		runArgs = append(runArgs, "--net-softnet-subnet-pool", strings.Join(resource.NetSoftnetSubnetPool, ","))
+	}
 	if resource.NetBridged != "" {
 		runArgs = append(runArgs, fmt.Sprintf("--net-bridged=%s", resource.NetBridged))
 	}
