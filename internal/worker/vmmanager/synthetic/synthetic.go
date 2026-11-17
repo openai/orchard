@@ -2,6 +2,7 @@ package synthetic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -96,6 +97,14 @@ func (vm *VM) SetResource(vmResource v1.VM) {
 }
 
 func (vm *VM) UpdateSoftnetPolicy(context.Context, []string, []string) error {
+	return nil
+}
+
+func (vm *VM) SetWireGuard(context.Context, v1.WireGuardSpec) (*v1.WireGuardStatus, error) {
+	return nil, errors.New("WireGuard is unavailable in synthetic VMs")
+}
+
+func (vm *VM) ClearWireGuard(context.Context) error {
 	return nil
 }
 

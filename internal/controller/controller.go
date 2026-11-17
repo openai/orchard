@@ -330,6 +330,7 @@ func (controller *Controller) failVMsWithHostDirs() error {
 			vm.StatusMessage = "host directories are used, but host directory sharing is disabled"
 			vm.RestartPolicy = v1.RestartPolicyNever
 			vm.ObservedEndpoints = nil
+			vm.ObservedWireGuard = nil
 
 			if err := txn.SetVM(vm); err != nil {
 				return err

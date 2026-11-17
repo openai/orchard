@@ -3,12 +3,14 @@ package tart
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"time"
 
+	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"golang.org/x/exp/jsonrpc2"
 	"golang.org/x/sys/unix"
 )
@@ -17,6 +19,8 @@ const (
 	softnetControlFD      = 3
 	softnetControlTimeout = 5 * time.Second
 )
+
+var errSoftnetControlUnavailable = errors.New("control channel for Softnet is unavailable")
 
 type softnetPolicyControl struct {
 	conn *jsonrpc2.Connection
@@ -155,4 +159,62 @@ func (vm *VM) UpdateSoftnetPolicy(ctx context.Context, allow []string, block []s
 	}
 
 	return vm.softnetControl.setPolicy(ctx, allow, block)
+}
+
+func (vm *VM) SetWireGuard(ctx context.Context, wireGuard v1.WireGuardSpec) (*v1.WireGuardStatus, error) {
+	// Softnet requires a peers array even when the Orchard request omits it
+	if wireGuard.Peers == nil {
+		wireGuard.Peers = []v1.WireGuardPeer{}
+	}
+
+	var status *v1.WireGuardStatus
+	if err := vm.callWireGuard(ctx, "softnet.wireguard.set", wireGuard, &status); err != nil {
+		return nil, fmt.Errorf("apply Softnet WireGuard network: %w", err)
+	}
+
+	if status == nil {
+		return nil, fmt.Errorf("invalid Softnet WireGuard response: missing status")
+	}
+	if err := status.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid Softnet WireGuard response: %w", err)
+	}
+
+	return status, nil
+}
+
+func (vm *VM) ClearWireGuard(ctx context.Context) error {
+	var ack *struct{}
+	if err := vm.callWireGuard(ctx, "softnet.wireguard.clear", struct{}{}, &ack); err != nil {
+		return fmt.Errorf("clear Softnet WireGuard network: %w", err)
+	}
+	if ack == nil {
+		return fmt.Errorf("invalid Softnet WireGuard clear response: missing result")
+	}
+
+	return nil
+}
+
+func (vm *VM) callWireGuard(ctx context.Context, method string, params, result any) error {
+	vm.softnetControlMtx.Lock()
+	control := vm.softnetControl
+	vm.softnetControlMtx.Unlock()
+
+	if control == nil || !vm.Running() {
+		return errSoftnetControlUnavailable
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, softnetControlTimeout)
+	defer cancel()
+
+	err := control.conn.Call(ctx, method, params).Await(ctx, result)
+
+	// A reply from a previous VM run no longer describes the active tunnel
+	vm.softnetControlMtx.Lock()
+	defer vm.softnetControlMtx.Unlock()
+
+	if vm.softnetControl != control || !vm.Running() {
+		return errSoftnetControlUnavailable
+	}
+
+	return err
 }

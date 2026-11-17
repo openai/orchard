@@ -308,6 +308,14 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 	defer vm.ConditionsSet().RemoveAll(v1.ConditionTypeRunning, v1.ConditionTypeSuspending)
 
 	resource := vm.Resource()
+
+	// In case WireGuard tunnel is requested, ensure that we can actually provide it
+	if resource.WireGuard != nil && !vm.softnetPolicyUpdates {
+		vm.SetErr(fmt.Errorf("WireGuard requires the Softnet control channel"))
+
+		return
+	}
+
 	if err := vm.HostProcessSet().Start(ctx, resource.HostProcesses); err != nil {
 		vm.SetErr(fmt.Errorf("failed to start host processes: %w", err))
 

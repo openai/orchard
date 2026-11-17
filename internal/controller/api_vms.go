@@ -67,6 +67,7 @@ func (controller *Controller) createVM(ctx *gin.Context) responder.Responder {
 	vm.Generation = 0
 	vm.ObservedGeneration = 0
 	vm.ObservedEndpoints = nil
+	vm.ObservedWireGuard = nil
 	vm.Conditions = []v1.Condition{
 		{
 			Type:  v1.ConditionTypeScheduled,
@@ -169,7 +170,12 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 		return responder
 	}
 
-	var userVM v1.VM
+	// Allow for optimistic concurrency control by detecting the presence of a "generation" field
+	var userVM struct {
+		v1.VM
+
+		Generation *uint64 `json:"generation"`
+	}
 
 	if err := ctx.ShouldBindJSON(&userVM); err != nil {
 		return responder.JSON(http.StatusBadRequest, NewErrorResponse("invalid JSON was provided"))
@@ -194,6 +200,12 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 			return responder.Error(err)
 		}
 
+		// Enable for optimistic concurrency control based on the "generation" field
+		if userVM.Generation != nil && *userVM.Generation != dbVM.Generation {
+			return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("VM generation "+
+				"does not match"))
+		}
+
 		// Changes to host processes require an additional role
 		//nolint:staticcheck // Preserve the original explicit VMSpec comparison.
 		if !dbVM.VMSpec.HostProcessesEqual(userVM.VMSpec) {
@@ -213,7 +225,7 @@ func (controller *Controller) updateVMSpec(ctx *gin.Context) responder.Responder
 				"and \"runtime\" fields cannot be modified"))
 		}
 
-		if err := userVM.Validate(); err != nil {
+		if err := dbVM.ValidateSpecUpdate(&userVM.VM); err != nil {
 			return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("%v", err))
 		}
 
@@ -314,6 +326,10 @@ func (controller *Controller) updateVMState(ctx *gin.Context) responder.Responde
 		if dbVM.TerminalState() && dbVM.Status != userVM.Status {
 			return responder.JSON(http.StatusPreconditionFailed,
 				NewErrorResponse("cannot update status for a VM in a terminal state"))
+		}
+
+		if err := dbVM.ValidateStateUpdate(&userVM); err != nil {
+			return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("%v", err))
 		}
 
 		if userVM.Status == v1.VMStatusRunning && dbVM.StartedAt.IsZero() {
