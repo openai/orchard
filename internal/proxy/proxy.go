@@ -26,8 +26,22 @@ func Connections(left io.ReadWriteCloser, right io.ReadWriteCloser) (finalErr er
 	leftErrCh := make(chan error, 1)
 	rightErrCh := make(chan error, 1)
 
-	recordErr := func(newErr error) {
+	// The first completed copy has not been interrupted by our shutdown.
+	// Preserve its I/O error, including EOF or a closed-connection error
+	// returned by a destination Write with bytes still outstanding.
+	recordPrimaryErr := func(newErr error) {
 		if newErr != nil && finalErr == nil {
+			finalErr = newErr
+		}
+	}
+	// An SSH channel can return EOF on normal Close. Closing either
+	// connection can also interrupt the other copy's Read or Write.
+	recordShutdownErr := func(newErr error) {
+		if newErr == nil || errors.Is(newErr, io.EOF) || errors.Is(newErr, net.ErrClosed) ||
+			strings.Contains(newErr.Error(), "use of closed network connection") {
+			return
+		}
+		if finalErr == nil {
 			finalErr = newErr
 		}
 	}
@@ -42,21 +56,19 @@ func Connections(left io.ReadWriteCloser, right io.ReadWriteCloser) (finalErr er
 		leftErrCh <- err
 	}()
 
-	// Wait for some goroutine and then unlock the other goroutine
-	// by closing its source io.Reader
+	// Close both connections when either copy ends. The remaining copy may
+	// be blocked in a destination Write rather than a source Read.
 	select {
 	case err := <-rightErrCh:
-		recordErr(err)
-		recordErr(left.Close())
-		recordErr(<-leftErrCh)
+		recordPrimaryErr(err)
+		recordShutdownErr(left.Close())
+		recordShutdownErr(right.Close())
+		recordShutdownErr(<-leftErrCh)
 	case err := <-leftErrCh:
-		recordErr(err)
-		recordErr(right.Close())
-		recordErr(<-rightErrCh)
-	}
-
-	if finalErr != nil && strings.Contains(finalErr.Error(), "use of closed network connection") {
-		finalErr = nil
+		recordPrimaryErr(err)
+		recordShutdownErr(right.Close())
+		recordShutdownErr(left.Close())
+		recordShutdownErr(<-rightErrCh)
 	}
 
 	return finalErr
