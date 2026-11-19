@@ -2,6 +2,10 @@ package vmmanager
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/cirruslabs/orchard/internal/worker/endpoint"
 	"github.com/cirruslabs/orchard/internal/worker/hostprocess"
@@ -85,4 +89,36 @@ func (vmm *VMManager) List() []VM {
 	})
 
 	return vms
+}
+
+// DiskExists checks the directory entries because the runtime inventory can omit unreadable guests.
+func DiskExists(onDiskName ondiskname.OnDiskName, runtimeName string) (bool, error) {
+	runtimeHome, ok := os.LookupEnv(strings.ToUpper(runtimeName) + "_HOME")
+	if !ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false, err
+		}
+
+		runtimeHome = filepath.Join(home, "."+runtimeName)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(runtimeHome, "vms"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	canonical := onDiskName.String()
+	for _, entry := range entries {
+		name, err := ondiskname.Parse(entry.Name())
+		if entry.Name() == canonical || (err == nil && name == onDiskName) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,6 +20,7 @@ import (
 	"github.com/cirruslabs/orchard/internal/tests/wait"
 	"github.com/cirruslabs/orchard/internal/worker/ondiskname"
 	"github.com/cirruslabs/orchard/internal/worker/vmmanager"
+	"github.com/cirruslabs/orchard/pkg/client"
 	v1 "github.com/cirruslabs/orchard/pkg/resource/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -172,6 +174,38 @@ func TestPortForwarding(t *testing.T) {
 	unameOutput, err := sshSession.Output("uname -a")
 	require.NoError(t, err)
 	require.Contains(t, string(unameOutput), cases.Title(language.English).String(runtime.GOOS))
+}
+
+func TestVMRejectsStaleState(t *testing.T) {
+	ctx := t.Context()
+	devClient, _, _ := devcontroller.StartIntegrationTestEnvironmentWithAdditionalOpts(t, false, nil, true, nil)
+	vms := devClient.VMs()
+	var vm v1.VM
+	vm.Name = "recreated-vm"
+	vm.Image = "test-image"
+
+	require.NoError(t, vms.Create(ctx, &vm))
+	previousVM, err := vms.Get(ctx, vm.Name)
+	require.NoError(t, err)
+	require.NoError(t, vms.Delete(ctx, vm.Name))
+
+	require.NoError(t, vms.Create(ctx, &vm))
+	replacementVM, err := vms.Get(ctx, vm.Name)
+	require.NoError(t, err)
+	require.NotEqual(t, previousVM.UID, replacementVM.UID)
+
+	// Reject updates from another UID or restart attempt under the same name.
+	wrongAttempt := *replacementVM
+	wrongAttempt.RestartCount++
+	for _, stale := range []v1.VM{*previousVM, wrongAttempt} {
+		_, err := vms.UpdateState(ctx, stale)
+		var apiErr *client.APIError
+		require.ErrorAs(t, err, &apiErr)
+		require.Equal(t, http.StatusNotFound, apiErr.StatusCode)
+	}
+
+	_, err = vms.UpdateState(ctx, *replacementVM)
+	require.NoError(t, err)
 }
 
 func TestSparseWorkerUpdatePreservesLastSeen(t *testing.T) {
