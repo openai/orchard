@@ -311,6 +311,10 @@ func (controller *Controller) updateVMState(ctx *gin.Context) responder.Responde
 			return responder.Error(err)
 		}
 
+		if dbVM.UID != userVM.UID || dbVM.RestartCount != userVM.RestartCount {
+			return responder.Error(storepkg.ErrNotFound)
+		}
+
 		if dbVM.TerminalState() && dbVM.Status != userVM.Status {
 			return responder.JSON(http.StatusPreconditionFailed,
 				NewErrorResponse("cannot update status for a VM in a terminal state"))

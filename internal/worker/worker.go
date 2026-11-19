@@ -569,6 +569,36 @@ func (worker *Worker) syncVMs(
 		switch action {
 		case ActionCreate:
 			// Remote VM was created, but not the local VM
+			if vmResource.PowerState == v1.PowerStateStopped || vmResource.PowerState == v1.PowerStateSuspended {
+				if vmResource.ObservedGeneration == vmResource.Generation &&
+					v1.ConditionIsFalse(vmResource.Conditions, v1.ConditionTypeRunning) {
+					continue
+				}
+
+				// A launch from a previous worker may still be waiting on this disk.
+				exists, err := worker.hasLocalVMDisk(onDiskName)
+				if err != nil {
+					worker.logger.Warnf("cannot check pending VM %s: %v", onDiskName, err)
+					continue
+				}
+
+				if exists {
+					continue
+				}
+
+				vmResource.ObservedGeneration = vmResource.Generation
+				v1.ConditionsSet(&vmResource.Conditions, v1.Condition{
+					Type:  v1.ConditionTypeRunning,
+					State: v1.ConditionStateFalse,
+				})
+
+				if err := updateVM(ctx, *vmResource); err != nil {
+					return err
+				}
+
+				continue
+			}
+
 			if hasUnaccountedRecoveredVM {
 				worker.logger.Warnf("deferring VM %s while recovered VMs are missing from controller inventory",
 					onDiskName)
@@ -854,6 +884,14 @@ func shouldPreserveRecoveredVM(
 	delete(recoveredVMs, onDiskName)
 
 	return false
+}
+
+func (worker *Worker) hasLocalVMDisk(onDiskName ondiskname.OnDiskName) (bool, error) {
+	if worker.runtime.Synthetic() {
+		return false, nil
+	}
+
+	return vmmanager.DiskExists(onDiskName, string(worker.runtime.ID()))
 }
 
 func (worker *Worker) listOnDiskVMs(ctx context.Context) ([]vmmanager.VMInfo, error) {

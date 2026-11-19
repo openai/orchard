@@ -747,13 +747,16 @@ func TestSyncVMsDefersNewVMWhileRecoveredVMIsUnaccounted(t *testing.T) {
 				Resources: v1.Resources{v1.ResourceTartVMs: 1},
 			}
 
+			var inventory atomic.Value
+			inventory.Store([]v1.VM{replacement})
+
 			controller := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				if request.URL.Path != recoveryTestVMsPath {
 					http.NotFound(writer, request)
 					return
 				}
 
-				writeRecoveryTestJSON(t, writer, []v1.VM{replacement})
+				writeRecoveryTestJSON(t, writer, inventory.Load())
 			}))
 			t.Cleanup(controller.Close)
 
@@ -777,7 +780,11 @@ func TestSyncVMsDefersNewVMWhileRecoveredVMIsUnaccounted(t *testing.T) {
 			recoveredVMs := map[ondiskname.OnDiskName]time.Time{
 				existingOnDiskName: time.Now().Add(recoveredVMProtectionPeriod),
 			}
-			updateVM := func(context.Context, v1.VM) error { return nil }
+			var updates []v1.VM
+			updateVM := func(_ context.Context, vm v1.VM) error {
+				updates = append(updates, vm)
+				return nil
+			}
 
 			require.NoError(t, worker.syncVMs(context.Background(), updateVM, recoveredVMs))
 			require.True(t, worker.vmm.Exists(existingOnDiskName))
@@ -785,15 +792,85 @@ func TestSyncVMsDefersNewVMWhileRecoveredVMIsUnaccounted(t *testing.T) {
 				"a one-slot worker must not start another VM while an unaccounted VM is active")
 			require.Len(t, worker.vmm.List(), 1)
 
+			stopped := replacement
+			stopped.PowerState = v1.PowerStateStopped
+			stopped.Generation++
+			inventory.Store([]v1.VM{stopped})
+
+			require.NoError(t, worker.syncVMs(t.Context(), updateVM, recoveredVMs))
+			require.Len(t, updates, 1)
+			require.Equal(t, stopped.UID, updates[0].UID)
+			require.Equal(t, stopped.Generation, updates[0].ObservedGeneration)
+			require.True(t, v1.ConditionIsFalse(updates[0].Conditions, v1.ConditionTypeRunning))
+
+			next := replacement
+			next.Name = "next-vm"
+			next.UID = "next-vm-uid"
+			inventory.Store([]v1.VM{updates[0], next})
+
 			recoveredVMs[existingOnDiskName] = time.Now().Add(-time.Second)
 			require.NoError(t, worker.syncVMs(context.Background(), updateVM, recoveredVMs))
 			require.True(t, existingVM.stopped.Load())
 			require.True(t, existingVM.deleted.Load())
-			require.True(t, worker.vmm.Exists(ondiskname.NewFromResource(replacement)),
+			require.True(t, worker.vmm.Exists(ondiskname.NewFromResource(next)),
 				"the queued VM should start after the expired recovered VM is removed")
+			require.False(t, worker.vmm.Exists(ondiskname.NewFromResource(stopped)))
+			require.Len(t, updates, 1)
+
 			t.Cleanup(func() { require.NoError(t, worker.Close()) })
 		})
 	}
+}
+
+func TestPendingSuspendAfterWorkerRestart(t *testing.T) {
+	var vm v1.VM
+	vm.Name = "guest-deadbeef-1234-4567-a890"
+	vm.UID = "deadbeef-1234-4567-a890-0123456789ab"
+	vm.Worker = recoveryTestWorkerName
+	vm.Status = v1.VMStatusPending
+	vm.Generation = 1
+	vm.PowerState = v1.PowerStateSuspended
+	vm.Suspendable = true
+
+	controller := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeRecoveryTestJSON(t, w, []v1.VM{vm})
+	}))
+	t.Cleanup(controller.Close)
+
+	controllerClient, err := client.New(client.WithAddress(controller.URL))
+	require.NoError(t, err)
+
+	worker, err := New(controllerClient, WithName(vm.Worker), WithSoftnetPolicyUpdates(false))
+	require.NoError(t, err)
+	t.Cleanup(worker.pollTicker.Stop)
+
+	var acknowledged bool
+	updateVM := func(context.Context, v1.VM) error {
+		acknowledged = true
+		return nil
+	}
+
+	home := t.TempDir()
+	t.Setenv("TART_HOME", home)
+	t.Setenv("VETU_HOME", home)
+	dir := filepath.Join(home, "vms")
+	require.NoError(t, os.WriteFile(dir, nil, 0o600))
+	require.NoError(t, worker.syncVMs(t.Context(), updateVM, nil))
+	require.NoError(t, os.Remove(dir))
+	require.NoError(t, os.Mkdir(dir, 0o700))
+
+	for _, name := range []string{ondiskname.NewFromResource(vm).String(), "orchard-" + vm.Name + "-" + vm.UID + "-0"} {
+		disk := filepath.Join(dir, name)
+		require.NoError(t, os.Mkdir(disk, 0))
+		require.NoError(t, worker.syncVMs(t.Context(), updateVM, nil))
+		require.NoError(t, os.Remove(disk))
+	}
+
+	require.False(t, acknowledged)
+	require.Empty(t, worker.vmm.List())
+
+	require.NoError(t, worker.syncVMs(t.Context(), updateVM, nil))
+	require.True(t, acknowledged)
 }
 
 func TestWatchRPCV2PreservesActiveOperationsAfterWatchCloses(t *testing.T) {
