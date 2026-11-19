@@ -336,7 +336,8 @@ NextVM:
 					return ErrWorkerSchedulingSkipped
 				}
 
-				if !compatibleArchAndRuntime(unscheduledVM, *currentWorker) {
+				if !compatibleArchAndRuntime(unscheduledVM, *currentWorker) ||
+					!currentWorker.Labels.Contains(unscheduledVM.Labels) {
 					return ErrWorkerSchedulingSkipped
 				}
 
