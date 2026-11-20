@@ -42,11 +42,24 @@ func NewVMTargetBinder(
 		var resolveGroup singleflight.Group
 
 		return func(ctx context.Context) (net.Conn, error) {
-			// Resolve the VM address lazily because it can change across VM runs
-			resolved, err, _ := resolveGroup.Do("vm-ip", func() (any, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("failed to get VM's IP: %w", err)
+			}
+			// Resolve lazily while allowing each caller to stop waiting independently.
+			result := resolveGroup.DoChan("vm-ip", func() (any, error) {
 				return resolveIP(ctx)
 			})
-			if err != nil {
+			var resolved any
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("failed to get VM's IP: %w", ctx.Err())
+			case resolution := <-result:
+				if resolution.Err != nil {
+					return nil, fmt.Errorf("failed to get VM's IP: %w", resolution.Err)
+				}
+				resolved = resolution.Val
+			}
+			if err := ctx.Err(); err != nil {
 				return nil, fmt.Errorf("failed to get VM's IP: %w", err)
 			}
 
