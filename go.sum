@@ -37,8 +37,6 @@ github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e h1:fY5BOSpyZCqRo5O
 github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e/go.mod h1:nSuG5e5PlCu98SY8svDHJxuZscDgtXS6KTTbou5AhLI=
 github.com/chzyer/test v0.0.0-20180213035817-a1ea475d72b1 h1:q763qf9huN11kDQavWsoZXJNW3xEE4JJyHa5Q25/sd8=
 github.com/chzyer/test v0.0.0-20180213035817-a1ea475d72b1/go.mod h1:Q3SI9o4m/ZMnBNeIyt5eFwwo7qiLfzFZmjNmxjkiQlU=
-github.com/cirruslabs/chacha v0.16.3 h1:rOxn+qXsF3N9tQDpYxJ99e1ZP7G+IsFpzXd47IfSVIg=
-github.com/cirruslabs/chacha v0.16.3/go.mod h1:6rPd7APYL3lPLA6L9tP5KAwx3l0nYjFA+1o2amYoICI=
 github.com/cirruslabs/tart-guest-agent v0.15.0 h1:/6HtgasJ4EoVpam6rVLwuciUsQNzVMeq+JoSAyDmfGo=
 github.com/cirruslabs/tart-guest-agent v0.15.0/go.mod h1:xcJ3TsMyqEGdqZWM+A5Gdp4VWIdfjPn4FCwDmNQDsBM=
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=

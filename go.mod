@@ -8,7 +8,6 @@ replace github.com/gin-gonic/gin v1.11.0 => github.com/gin-gonic/gin v1.10.0
 require (
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/avast/retry-go/v5 v5.0.0
-	github.com/cirruslabs/chacha v0.16.3
 	github.com/cirruslabs/tart-guest-agent v0.15.0
 	github.com/coder/websocket v1.8.15
 	github.com/deckarep/golang-set/v2 v2.9.0
