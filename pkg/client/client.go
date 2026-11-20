@@ -176,8 +176,10 @@ func (client *Client) configureFromDefaultContext() error {
 	}
 
 	client.address = defaultContext.URL
-	client.serviceAccountName = defaultContext.ServiceAccountName
-	client.serviceAccountToken = defaultContext.ServiceAccountToken
+	if client.serviceAccountName == "" && client.serviceAccountToken == "" {
+		client.serviceAccountName = defaultContext.ServiceAccountName
+		client.serviceAccountToken = defaultContext.ServiceAccountToken
+	}
 
 	if client.trustedCertificate == nil {
 		client.trustedCertificate, err = defaultContext.TrustedCertificate()
