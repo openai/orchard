@@ -3,7 +3,7 @@
 package localnetworkhelper
 
 import (
-	"github.com/cirruslabs/chacha/pkg/localnetworkhelper"
+	"github.com/cirruslabs/orchard/internal/localnetworkhelper"
 	"github.com/spf13/cobra"
 )
 
