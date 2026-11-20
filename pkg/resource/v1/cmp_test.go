@@ -17,8 +17,9 @@ func TestVM(t *testing.T) {
 func TestSemanticallyEqualEquatesEmptySlices(t *testing.T) {
 	nilSlicesSpec := v1.VMSpec{}
 	emptySlicesSpec := v1.VMSpec{
-		NetSoftnetAllow: []string{},
-		NetSoftnetBlock: []string{},
+		NetSoftnetAllow:      []string{},
+		NetSoftnetBlock:      []string{},
+		NetSoftnetSubnetPool: []string{},
 	}
 	require.True(t, v1.SemanticallyEqual(nilSlicesSpec, emptySlicesSpec))
 }
@@ -30,4 +31,19 @@ func TestVMSpecHostProcessesEqualEquatesEmptySlices(t *testing.T) {
 	}
 
 	require.True(t, nilHostProcessesSpec.HostProcessesEqual(emptyHostProcessesSpec))
+}
+
+func TestSubnetPoolEnablesSoftnet(t *testing.T) {
+	spec := v1.VMSpec{NetSoftnetSubnetPool: []string{"192.168.64.0/18"}}
+
+	require.True(t, spec.SoftnetEnabled())
+}
+
+func TestVetuRejectsSoftnetSubnetPool(t *testing.T) {
+	vm := v1.VM{VMSpec: v1.VMSpec{
+		Runtime:              v1.RuntimeVetu,
+		NetSoftnetSubnetPool: []string{"192.168.64.0/18"},
+	}}
+
+	require.EqualError(t, vm.Validate(), `runtime "vetu" does not support field "netSoftnetSubnetPool"`)
 }
