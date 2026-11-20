@@ -37,6 +37,7 @@ var experimentalPingInterval time.Duration
 var experimentalDisableDBCompression bool
 var workerOfflineTimeout time.Duration
 var workersStartPaused bool
+var trustedProxies []string
 var execSSHConnectionKeepaliveInterval time.Duration
 var synthetic bool
 
@@ -94,6 +95,9 @@ func newRunCommand() *cobra.Command {
 			"marked as failed)")
 	cmd.Flags().BoolVar(&workersStartPaused, "workers-start-paused", false,
 		"pause scheduling on newly registered workers until explicitly resumed")
+	cmd.Flags().StringSliceVar(&trustedProxies, "trusted-proxies", nil,
+		"IP addresses or CIDRs of proxies whose X-Forwarded-For and X-Real-IP headers are trusted "+
+			"when determining a worker's address (by default these headers are ignored)")
 	cmd.Flags().DurationVar(&execSSHConnectionKeepaliveInterval, "exec-ssh-connection-keepalive-interval", 30*time.Second,
 		"interval between SSH keepalive requests sent by the controller for shared exec connections")
 
@@ -158,6 +162,7 @@ func runController(cmd *cobra.Command, args []string) (err error) {
 		controller.WithWorkerOfflineTimeout(workerOfflineTimeout),
 		controller.WithExecSSHConnectionKeepaliveInterval(execSSHConnectionKeepaliveInterval),
 		controller.WithLogger(logger),
+		controller.WithTrustedProxies(trustedProxies),
 	}
 
 	if apiPrefix != "" {

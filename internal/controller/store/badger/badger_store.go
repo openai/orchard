@@ -3,6 +3,7 @@ package badger
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -13,7 +14,11 @@ import (
 )
 
 type Store struct {
-	db *badger.DB
+	db       *badger.DB
+	gcStop   chan struct{}
+	gcDone   sync.WaitGroup
+	closeErr error
+	close    sync.Once
 	store.Store
 }
 
@@ -40,23 +45,42 @@ func NewBadgerStore(dbPath string, noCompression bool, logger *zap.SugaredLogger
 	}
 
 	store := &Store{
-		db: db,
+		db:     db,
+		gcStop: make(chan struct{}),
 	}
 
 	// Perform garbage collection periodically, as recommended in the documentation[1]
 	//
 	// [1]: https://docs.hypermode.com/badger/quickstart#garbage-collection
+	store.gcDone.Add(1)
 	go func() {
+		defer store.gcDone.Done()
+
 		for {
 			if err := store.performGarbageCollection(); err != nil {
 				logger.Errorf("garbage collection failed: %v", err)
 			}
 
-			<-time.After(1 * time.Hour)
+			select {
+			case <-store.gcStop:
+				return
+			case <-time.After(1 * time.Hour):
+			}
 		}
 	}()
 
 	return store, nil
+}
+
+// Close stops the periodic garbage collection and closes the database.
+func (store *Store) Close() error {
+	store.close.Do(func() {
+		close(store.gcStop)
+		store.gcDone.Wait()
+		store.closeErr = store.db.Close()
+	})
+
+	return store.closeErr
 }
 
 func (store *Store) performGarbageCollection() error {

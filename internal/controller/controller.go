@@ -57,6 +57,7 @@ type Controller struct {
 	enableSwaggerDocs                  bool
 	workerOfflineTimeout               time.Duration
 	workersStartPaused                 bool
+	trustedProxies                     []string
 	execSSHConnectionKeepaliveInterval time.Duration
 	experimentalRPCV2                  bool
 	disableDBCompression               bool
@@ -74,7 +75,7 @@ type Controller struct {
 	rpc.UnimplementedControllerServer
 }
 
-func New(opts ...Option) (*Controller, error) {
+func New(opts ...Option) (_ *Controller, err error) {
 	controller := &Controller{
 		connRendezvous:                     rendezvous.New[rendezvous.ResultWithErrorMessage[net.Conn]](),
 		ipRendezvous:                       rendezvous.New[rendezvous.ResultWithErrorMessage[string]](),
@@ -100,6 +101,10 @@ func New(opts ...Option) (*Controller, error) {
 	if controller.logger == nil {
 		controller.logger = zap.NewNop().Sugar()
 	}
+	apiServer, err := controller.initAPI()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInitFailed, err)
+	}
 	controller.execSSHClients = newExecSSHClientPool(
 		controller.execSSHConnectionKeepaliveInterval,
 		controller.logger.With("component", "exec-ssh"),
@@ -112,6 +117,19 @@ func New(opts ...Option) (*Controller, error) {
 		return nil, err
 	}
 	controller.store = store
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		if controller.listener != nil {
+			_ = controller.listener.Close()
+		}
+		if controller.sshServer != nil {
+			_ = controller.sshServer.Close()
+		}
+		_ = controller.store.Close()
+	}()
 
 	// Instantiate the worker notifier
 	controller.workerNotifier = notifier.NewNotifier(controller.logger.With("component", "rpc"))
@@ -142,8 +160,6 @@ func New(opts ...Option) (*Controller, error) {
 	} else {
 		controller.listener = listener
 	}
-
-	apiServer := controller.initAPI()
 
 	controller.grpcServer = grpc.NewServer(
 		grpc.KeepaliveParams(keepalive.ServerParameters{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,8 +28,12 @@ const ctxServiceAccountKey = "service-account"
 
 var ErrUnauthorized = errors.New("unauthorized")
 
-func (controller *Controller) initAPI() *gin.Engine {
+func (controller *Controller) initAPI() (*gin.Engine, error) {
 	ginEngine := gin.New()
+
+	if err := ginEngine.SetTrustedProxies(controller.trustedProxies); err != nil {
+		return nil, fmt.Errorf("invalid trusted proxies: %w", err)
+	}
 
 	// Enable Gin's context fallback to make (*gin.Context).Done() work
 	// and to avoid calling the (*gin.Context).Request.Context().Done()
@@ -188,7 +193,7 @@ func (controller *Controller) initAPI() *gin.Engine {
 		controller.appendVMEvents(c).Respond(c)
 	})
 
-	return ginEngine
+	return ginEngine, nil
 }
 
 func (controller *Controller) fetchServiceAccount(name string, token string) (*v1pkg.ServiceAccount, error) {

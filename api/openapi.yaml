@@ -602,6 +602,16 @@ components:
         name:
           type: string
           description: Node name
+        address:
+          type: string
+          description: |
+            Host (IP address or hostname, without a port) on which the worker
+            can be reached, e.g. to connect to a VM endpoint's `workerPort`.
+
+            Set at registration time from the worker's `--advertise-address`,
+            or, if not specified, from the address the controller observes
+            for the worker's request (see `--trusted-proxies`).
+          example: 192.168.1.10
         resources:
           type: object
           description: |

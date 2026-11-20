@@ -44,6 +44,11 @@ func (controller *Controller) createWorker(ctx *gin.Context) responder.Responder
 	}
 	worker.CreatedAt = currentTime
 	worker.SchedulingPaused = worker.SchedulingPaused || controller.workersStartPaused
+	if worker.Address == "" {
+		worker.Address = ctx.ClientIP()
+	} else if err := v1.ValidateWorkerAddress(worker.Address); err != nil {
+		return responder.JSON(http.StatusPreconditionFailed, NewErrorResponse("%v", err))
+	}
 
 	return controller.storeUpdate(func(txn storepkg.Transaction) responder.Responder {
 		// In case there already exist a worker with the same name,
@@ -80,6 +85,7 @@ func (controller *Controller) createWorker(ctx *gin.Context) responder.Responder
 		dbWorker.DefaultCPU = worker.DefaultCPU
 		dbWorker.DefaultMemory = worker.DefaultMemory
 		dbWorker.Capabilities = worker.Capabilities
+		dbWorker.Address = worker.Address
 
 		if err := txn.SetWorker(*dbWorker); err != nil {
 			return responder.Error(err)

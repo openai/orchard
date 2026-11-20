@@ -42,12 +42,12 @@ func runListWorkers(cmd *cobra.Command, args []string) error {
 	table := uitable.New()
 	table.Wrap = true
 
-	table.AddRow("Name", "Last seen", "Scheduling paused")
+	table.AddRow("Name", "Address", "Last seen", "Scheduling paused")
 
 	for _, worker := range workers {
 		lastSeenInfo := humanize.RelTime(worker.LastSeen, time.Now(), "ago", "in the future")
 
-		table.AddRow(worker.Name, lastSeenInfo, worker.SchedulingPaused)
+		table.AddRow(worker.Name, worker.Address, lastSeenInfo, worker.SchedulingPaused)
 	}
 
 	fmt.Println(table)
