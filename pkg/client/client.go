@@ -223,7 +223,7 @@ func (client *Client) requestWithHeaders(
 
 	client.modifyHeader(request.Header)
 
-	response, err := client.httpClient.Do(request)
+	response, err := client.httpClientForWait(params).Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("%w to make a request: %v", ErrFailed, err)
 	}
@@ -322,7 +322,7 @@ func (client *Client) wsRequestRaw(
 	endpointURL.RawQuery = values.Encode()
 
 	dialOptions := &websocket.DialOptions{
-		HTTPClient: client.httpClientForWebSocket(params),
+		HTTPClient: client.httpClientForWait(params),
 		HTTPHeader: make(http.Header),
 	}
 
@@ -405,7 +405,7 @@ func (client *Client) RPC() *RPCService {
 	}
 }
 
-func (client *Client) httpClientForWebSocket(params map[string]string) *http.Client {
+func (client *Client) httpClientForWait(params map[string]string) *http.Client {
 	waitRaw, ok := params[waitParameterName]
 	if !ok {
 		return client.httpClient

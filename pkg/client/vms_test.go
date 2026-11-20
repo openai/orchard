@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTPClientForWebSocketHonorsWait(t *testing.T) {
+func TestHTTPClientForWaitHonorsWait(t *testing.T) {
 	devClient, err := New(WithAddress("http://localhost"))
 	require.NoError(t, err)
 
-	httpClient := devClient.httpClientForWebSocket(map[string]string{waitParameterName: "120"})
+	httpClient := devClient.httpClientForWait(map[string]string{waitParameterName: "120"})
 
 	require.Equal(t, 150*time.Second, httpClient.Timeout)
 	require.Same(t, devClient.httpClient.Transport, httpClient.Transport)
