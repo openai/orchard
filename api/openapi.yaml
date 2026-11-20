@@ -680,6 +680,12 @@ components:
           type: number
           description: Disk size for this VM
           example: 100
+        rootDiskOpts:
+          type: string
+          description: |
+            Options for the VM's root disk, passed as the `--root-disk-opts` command-line argument to `tart run`.
+            Only supported by the Tart runtime. This field cannot be changed after the VM is created.
+          example: sync=fsync
         endpoints:
           type: array
           description: |

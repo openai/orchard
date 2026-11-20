@@ -22,6 +22,7 @@ var vmRuntimeRaw string
 var cpu uint64
 var memory uint64
 var diskSize uint64
+var rootDiskOpts string
 var netSoftnet bool
 var netSoftnetAllow []string
 var netSoftnetBlock []string
@@ -64,6 +65,8 @@ func newCreateVMCommand() *cobra.Command {
 	command.Flags().Uint64Var(&memory, "memory", 8*1024, "megabytes of memory to use")
 	command.Flags().Uint64Var(&diskSize, "disk-size", 0, "resize the VMs disk to the specified size in GB "+
 		"(no resizing is done by default and VM's image default size is used)")
+	command.Flags().StringVar(&rootDiskOpts, "root-disk-opts", "", "options for the VM's root disk, "+
+		"see \"tart run\"'s help for \"--root-disk-opts\" for more details, e.g. \"sync=fsync\" (Tart runtime only)")
 	command.Flags().BoolVar(&netSoftnet, "net-softnet", false, "whether to use Softnet network isolation")
 	command.Flags().StringSliceVar(&netSoftnetAllow, "net-softnet-allow", []string{},
 		"comma-separated list of CIDRs to allow the traffic to when using Softnet isolation, see "+
@@ -149,10 +152,11 @@ func runCreateVM(cmd *cobra.Command, args []string) error {
 		Meta: v1.Meta{
 			Name: name,
 		},
-		Image:    image,
-		CPU:      cpu,
-		Memory:   memory,
-		DiskSize: diskSize,
+		Image:        image,
+		CPU:          cpu,
+		Memory:       memory,
+		DiskSize:     diskSize,
+		RootDiskOpts: rootDiskOpts,
 		VMSpec: v1.VMSpec{
 			OS:                   vmOS,
 			Arch:                 vmArch,

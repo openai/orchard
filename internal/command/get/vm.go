@@ -91,6 +91,7 @@ func runGetVM(cmd *cobra.Command, args []string) error {
 	}
 
 	table.AddRow("Disk size", diskSize)
+	table.AddRow("Root disk options", nonEmptyOrNone(vm.RootDiskOpts))
 
 	table.AddRow("Softnet enabled", vm.NetSoftnetDeprecated || vm.NetSoftnet)
 	table.AddRow("Softnet allowed CIDRs", strings.Join(vm.NetSoftnetAllow, "\n"))
