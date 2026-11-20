@@ -245,6 +245,7 @@ func TestSyncVMsWaitsForVMShutdown(t *testing.T) {
 			manager := vmmanager.New()
 			manager.Put(vm.OnDiskName(), vm)
 			worker := &Worker{name: "test-worker", client: apiClient, vmm: manager, logger: zap.NewNop().Sugar()}
+			WithSynthetic()(worker)
 			updated := make(chan v1.VM, 1)
 			finished := make(chan error, 1)
 

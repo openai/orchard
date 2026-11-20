@@ -44,6 +44,81 @@ const (
 	startupTestVMUID       = "11111111-2222-4333-8444-555555555555"
 )
 
+func TestSyncVMsRetriesOrphanedDiskCleanup(t *testing.T) {
+	const stopTimeoutSeconds = 31
+
+	vm := v1.VM{
+		Name:   "guest",
+		UID:    "deadbeef-1234-4567-a890-0123456789ab",
+		Worker: recoveryTestWorkerName,
+		Status: v1.VMStatusFailed,
+	}
+
+	// Preserve the full UID used by older workers when deleting the disk.
+	name := "orchard-" + vm.Name + "-" + vm.UID + "-0"
+	home := t.TempDir()
+	t.Setenv("TART_HOME", home)
+	disk := filepath.Join(home, "vms", name)
+	unmanaged := filepath.Join(home, "vms", "personal-vm")
+	require.NoError(t, os.MkdirAll(disk, 0o700))
+	require.NoError(t, os.MkdirAll(unmanaged, 0o700))
+
+	var inventory atomic.Value
+	inventory.Store([]v1.VM{vm})
+	worker := newWorkerWithFakeTart(t, `#!/bin/sh
+case "$1" in
+  list)
+    printf '['
+    separator=''
+    for disk in "$TART_HOME"/vms/*; do
+      [ -d "$disk" ] || continue
+      running=false
+      [ ! -f "$disk/in-use" ] || running=true
+      printf '%s{"Name":"%s","Running":%s}' "$separator" "${disk##*/}" "$running"
+      separator=,
+    done
+    printf ']' ;;
+  stop)
+    /bin/sleep "$3"
+    /bin/rm -f "$TART_HOME/vms/$4/in-use" ;;
+  delete) /bin/rmdir "$TART_HOME/vms/$2" || exit 2 ;;
+esac
+`, func(w http.ResponseWriter, _ *http.Request) bool {
+		writeRecoveryTestJSON(t, w, inventory.Load())
+		return true
+	})
+	// Allow a graceful stop longer than the inventory timeout.
+	worker.vmStopTimeoutSeconds = stopTimeoutSeconds
+
+	require.NoError(t, worker.syncOnDiskVMs(t.Context()))
+	require.NoError(t, worker.syncVMs(t.Context(), nil, nil))
+	require.DirExists(t, disk, "a controller-owned disk must survive reconciliation")
+
+	// A failed clone releases its handle without removing the original disk.
+	clone := &recoveryTestVM{
+		resource:       vm,
+		conditionsSeen: make(chan struct{}),
+	}
+	worker.vmm.Put(clone.OnDiskName(), clone)
+	inventory.Store([]v1.VM{})
+	blocker := filepath.Join(disk, "blocked")
+	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(disk, "in-use"), nil, 0o600))
+
+	require.NoError(t, worker.syncVMs(t.Context(), nil, nil))
+	require.True(t, clone.stopped.Load())
+	require.True(t, clone.deleted.Load())
+	require.Empty(t, worker.vmm.List())
+	require.DirExists(t, disk, "a failed disk deletion must not interrupt reconciliation")
+	require.NoFileExists(t, filepath.Join(disk, "in-use"))
+
+	require.NoError(t, os.Remove(blocker))
+	require.NoError(t, worker.syncVMs(t.Context(), nil, nil))
+	require.NoDirExists(t, disk, "a later poll must retry the orphaned disk")
+	require.NoError(t, worker.syncVMs(t.Context(), nil, nil))
+	require.DirExists(t, unmanaged)
+}
+
 func TestSyncOnDiskVMsCancelsStuckTartList(t *testing.T) {
 	worker := newWorkerWithFakeTart(t, "#!/bin/sh\nexec /bin/sleep 60\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

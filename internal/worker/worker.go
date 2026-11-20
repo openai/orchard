@@ -702,6 +702,15 @@ func (worker *Worker) syncVMs(
 		}
 	}
 
+	// A disk can outlive both its controller resource and its local VM handle.
+	stopTimeout := time.Duration(worker.vmStopTimeoutSeconds) * time.Second
+	cleanupCtx, cancel := context.WithTimeout(ctx, onDiskVMSyncTimeout+stopTimeout)
+	defer cancel()
+
+	if err := worker.syncOnDiskVMs(cleanupCtx); err != nil {
+		worker.logger.Warnf("failed to sync on-disk VMs: %v", err)
+	}
+
 	return nil
 }
 
