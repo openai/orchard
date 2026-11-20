@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
+
+var errSoftnetBridgedConflict = errors.New("cannot combine Softnet and bridged networking")
 
 // Meta is a common set of fields that apply to all resources managed by the Controller.
 type Meta struct {
@@ -144,6 +147,14 @@ func (vm *VM) IsScheduled() bool {
 }
 
 func (vm *VM) Validate() error {
+	if vm.SoftnetEnabled() && vm.NetBridged != "" {
+		return errSoftnetBridgedConflict
+	}
+
+	return vm.validateSpec()
+}
+
+func (vm *VM) validateSpec() error {
 	if vm.StartupScript != nil {
 		if err := vm.StartupScript.Transport.Validate(); err != nil {
 			return err
@@ -185,7 +196,77 @@ func (vm *VM) Validate() error {
 		}
 	}
 
+	if vm.WireGuard != nil {
+		if !vm.SoftnetEnabled() {
+			return errors.New("WireGuard configuration requires Softnet")
+		}
+
+		return vm.WireGuard.Validate()
+	}
+
 	return nil
+}
+
+func (vm *VM) ValidateSpecUpdate(requested *VM) error {
+	if err := requested.validateSpec(); err != nil {
+		return err
+	}
+
+	// Enable for optimistic concurrency control based on the "uid" field
+	if requested.UID != "" && requested.UID != vm.UID {
+		return errors.New("VM UID does not match")
+	}
+
+	// The network and power state checks below apply only when adding or reconfiguring a tunnel
+	if requested.WireGuard != nil && !SemanticallyEqual(vm.WireGuard, requested.WireGuard) {
+		if vm.NetBridged != "" {
+			return errSoftnetBridgedConflict
+		}
+
+		if !vm.SoftnetEnabled() || requested.PowerState != PowerStateRunning {
+			return errors.New("WireGuard configuration requires a running or pending Softnet VM")
+		}
+	}
+
+	return nil
+}
+
+func (vm *VM) ValidateStateUpdate(report *VM) error {
+	// Enable for optimistic concurrency control based on the "uid" field
+	if report.UID != "" && report.UID != vm.UID {
+		return errors.New("VM UID does not match")
+	}
+
+	// A stale report can clear the gateway even after the configuration has been removed
+	if vm.WireGuard != nil || vm.ObservedWireGuard != nil {
+		switch {
+		case report.UID == "":
+			return errors.New("VM UID is required for a WireGuard state update")
+		case vm.Worker == "":
+			return errors.New("VM has no assigned worker")
+		case report.Worker != vm.Worker:
+			return errors.New("VM worker does not match")
+		case report.RestartCount != vm.RestartCount:
+			return errors.New("VM restart count does not match")
+		case report.Generation != vm.Generation:
+			return errors.New("VM generation does not match")
+		}
+	}
+
+	observed := report.ObservedWireGuard
+	if observed == nil {
+		return nil
+	}
+
+	// The worker may repeat the last observation until Softnet confirms removal
+	if vm.ObservedWireGuard != nil && *observed == *vm.ObservedWireGuard {
+		return nil
+	}
+	if vm.WireGuard == nil {
+		return errors.New("VM has no WireGuard configuration")
+	}
+
+	return observed.Validate()
 }
 
 type VMSpec struct {
@@ -207,6 +288,7 @@ type VMSpec struct {
 	// so this field defaults to that when not set.
 	Runtime Runtime `json:"runtime,omitempty"`
 
+	WireGuard            *WireGuardSpec `json:"wireGuard,omitempty"`
 	HostProcesses        []HostProcess  `json:"hostProcesses,omitempty"`
 	Endpoints            []EndpointSpec `json:"endpoints,omitempty"`
 	NetSoftnetDeprecated bool           `json:"net-softnet,omitempty"` //nolint:tagliatelle // legacy JSON key
@@ -246,6 +328,8 @@ type VMSpecReadOnly struct {
 }
 
 type VMState struct {
+	ObservedWireGuard *WireGuardStatus `json:"observedWireGuard,omitempty"`
+
 	// ObservedGeneration corresponds to the Generation of VM specification
 	// on which the worker had acted upon.
 	ObservedGeneration uint64 `json:"observedGeneration"`

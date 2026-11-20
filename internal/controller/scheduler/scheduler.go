@@ -517,10 +517,12 @@ func (scheduler *Scheduler) healthCheckingLoopIteration() (int, error) {
 func (scheduler *Scheduler) healthCheckVM(txn storepkg.Transaction, vm v1.VM) error {
 	logger := scheduler.logger.With("vm_name", vm.Name, "vm_uid", vm.UID, "vm_restart_count", vm.RestartCount)
 
-	// Preserve the current endpoint observations for comparison below and reset them,
-	// so every VM transition persisted below discards the stale endpoint observations
+	// Preserve observations for live VM updates and reset them for lifecycle transitions
 	savedObservedEndpoints := vm.ObservedEndpoints
+	savedObservedWireGuard := vm.ObservedWireGuard
+
 	vm.ObservedEndpoints = nil
+	vm.ObservedWireGuard = nil
 
 	// Schedule a VM restart if the restart policy mandates it
 	needsRestart := vm.RestartPolicy == v1.RestartPolicyOnFailure &&
@@ -620,6 +622,9 @@ func (scheduler *Scheduler) healthCheckVM(txn storepkg.Transaction, vm v1.VM) er
 		if slices.Equal(savedObservedEndpoints, vm.ObservedEndpoints) {
 			return nil
 		}
+
+		// Preserve WireGuard status because this update only reports endpoint errors
+		vm.ObservedWireGuard = savedObservedWireGuard
 
 		return txn.SetVM(vm)
 	}

@@ -19,6 +19,8 @@ type VM interface {
 	Resource() v1.VM
 	SetResource(vmResource v1.VM)
 	UpdateSoftnetPolicy(ctx context.Context, allow []string, block []string) error
+	SetWireGuard(ctx context.Context, wireGuard v1.WireGuardSpec) (*v1.WireGuardStatus, error)
+	ClearWireGuard(ctx context.Context) error
 	OnDiskName() ondiskname.OnDiskName
 	ImageFQN() *string
 	EndpointSet() *endpoint.Set

@@ -135,6 +135,14 @@ func (vm *VM) UpdateSoftnetPolicy(context.Context, []string, []string) error {
 	return errors.ErrUnsupported
 }
 
+func (vm *VM) SetWireGuard(context.Context, v1.WireGuardSpec) (*v1.WireGuardStatus, error) {
+	return nil, errors.ErrUnsupported
+}
+
+func (vm *VM) ClearWireGuard(context.Context) error {
+	return errors.ErrUnsupported
+}
+
 func (vm *VM) OnDiskName() ondiskname.OnDiskName {
 	return vm.onDiskName
 }

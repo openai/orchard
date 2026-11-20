@@ -628,6 +628,7 @@ func (worker *Worker) syncVMs(
 			// Mark the remote VM as started
 			vmResource.Status = v1.VMStatusRunning
 			vmResource.StatusMessage = vm.StatusMessage()
+			vmResource.ObservedWireGuard = nil
 
 			if err := updateVM(ctx, *vmResource); err != nil {
 				return err
@@ -688,6 +689,7 @@ func (worker *Worker) syncVMs(
 			vmResource.Status = v1.VMStatusFailed
 			vmResource.StatusMessage = statusMessage
 			vmResource.ObservedEndpoints = nil
+			vmResource.ObservedWireGuard = nil
 			if err := updateVM(ctx, *vmResource); err != nil {
 				return err
 			}
@@ -720,14 +722,14 @@ func (worker *Worker) monitorRunningVM(
 	// When set, retries during the next sync instead of restarting the VM
 	deferSpecReconciliation := false
 
+	running := vmResource.PowerState == v1.PowerStateRunning && vm.Running()
+
 	// Try to apply the host process updates in-place or recover processes that exited unexpectedly
 	hostProcessesChanged := !currentVMResource.VMSpec.HostProcessesEqual(vmResource.VMSpec)
 	hostProcessesNeedRestart := currentVMResource.Generation == vmResource.Generation &&
 		!vm.HostProcessSet().Ready()
 
-	if vmResource.PowerState == v1.PowerStateRunning &&
-		vm.Running() &&
-		(hostProcessesChanged || hostProcessesNeedRestart) {
+	if running && (hostProcessesChanged || hostProcessesNeedRestart) {
 		if err := vm.HostProcessSet().Replace(ctx, vmResource.HostProcesses); err != nil {
 			worker.logger.Warnf("failed to update host processes for VM %q: %v",
 				vmResource.Name, err)
@@ -745,11 +747,30 @@ func (worker *Worker) monitorRunningVM(
 		vmResource.Endpoints,
 	)
 
-	if vmResource.PowerState == v1.PowerStateRunning &&
-		vm.Running() &&
-		endpointsChanged {
+	if running && endpointsChanged {
 		currentVMResource.Endpoints = vmResource.Endpoints
 		appliedInPlace = true
+	}
+
+	// Determine the WireGuard tunnel status
+	var observedWireGuard *v1.WireGuardStatus
+
+	if running {
+		switch {
+		case vmResource.WireGuard != nil && currentVMResource.Generation != vmResource.Generation:
+			currentVMResource.WireGuard = vmResource.WireGuard
+			appliedInPlace = true
+		case vmResource.WireGuard == nil && currentVMResource.WireGuard != nil:
+			// Keep the previous observation and generation until Softnet confirms removal
+			if err := vm.ClearWireGuard(ctx); err != nil {
+				worker.logger.Warnf("failed to remove WireGuard for VM %q: %v", vmResource.Name, err)
+				observedWireGuard = vmResource.ObservedWireGuard
+				deferSpecReconciliation = true
+			} else {
+				currentVMResource.WireGuard = nil
+				appliedInPlace = true
+			}
+		}
 	}
 
 	// Advance the generation only if no other specification changes remain
@@ -761,6 +782,16 @@ func (worker *Worker) monitorRunningVM(
 		vm.SetResource(currentVMResource)
 	}
 
+	// Configure the tunnel only when the requested VM generation is running
+	if running && vmResource.WireGuard != nil && currentVMResource.Generation == vmResource.Generation {
+		var err error
+
+		observedWireGuard, err = vm.SetWireGuard(ctx, *vmResource.WireGuard)
+		if err != nil {
+			worker.logger.Warnf("failed to configure WireGuard for VM %q: %v", vmResource.Name, err)
+		}
+	}
+
 	// Reconcile specification changes that could not be applied in-place
 	if !deferSpecReconciliation {
 		worker.reconcileRunningVM(vmResource, vm) //nolint:contextcheck // Event streams outlive sync sessions.
@@ -770,6 +801,12 @@ func (worker *Worker) monitorRunningVM(
 
 	if (worker.runtime.ID() == v1.RuntimeTart || worker.runtime.Synthetic()) &&
 		worker.reconcileEndpoints(vmResource, vm) {
+		updateNeeded = true
+	}
+
+	if !v1.SemanticallyEqual(vmResource.ObservedWireGuard, observedWireGuard) {
+		vmResource.ObservedWireGuard = observedWireGuard
+
 		updateNeeded = true
 	}
 

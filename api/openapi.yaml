@@ -305,7 +305,24 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/VMSpec'
+              type: object
+              allOf:
+                - $ref: '#/components/schemas/VMSpec'
+              required: [powerState]
+              properties:
+                name:
+                  $ref: '#/components/schemas/VMMeta/properties/name'
+                uid:
+                  type: string
+                  nullable: true
+                  description: VM identity for a conditional update.
+                generation:
+                  type: integer
+                  format: uint64
+                  minimum: 0
+                  maximum: 18446744073709551615
+                  nullable: true
+                  description: VM generation for a conditional update.
       responses:
         '200':
           description: VM object was successfully updated
@@ -314,9 +331,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/VM'
         '400':
-          description: Invalid VM specification
+          description: Invalid request body or VM specification
         '404':
           description: VM resource with the given name doesn't exist
+        '412':
+          description: >-
+            UID or generation differs from the current VM, or the VM cannot
+            accept the requested configuration
     delete:
       summary: "Delete a VM"
       tags:
@@ -625,10 +646,16 @@ components:
           type: string
           description: VM name
           example: macos-tahoe-base
+        uid:
+          type: string
+          minLength: 1
+          description: Controller-assigned identity of this VM
         generation:
-          type: number
-          description: Incremented by the controller each time a VM's specification changes
-          readOnly: true
+          type: integer
+          format: uint64
+          minimum: 0
+          maximum: 18446744073709551615
+          description: Controller-assigned generation of this VM
     VMSpec:
       title: Virtual Machine Specification
       type: object
@@ -717,6 +744,8 @@ components:
             - "192.168.0.0/24"
           items:
             type: string
+        wireGuard:
+          $ref: '#/components/schemas/WireGuardSpec'
         netSoftnetBlock:
           type: array
           description: |
@@ -1027,6 +1056,71 @@ components:
             `ORCHARD_*` variables take precedence over values supplied here.
           additionalProperties:
             type: string
+    WireGuardSpec:
+      type: object
+      nullable: true
+      description: |
+        WireGuard tunnel with one peer and one IPv4 prefix. Requires Softnet
+        to be enabled. Omit `peers` or use `[]` to remove the peer; omit
+        `wireGuard` or use `null` on PUT to remove the tunnel.
+        See `observedWireGuard` for the generated public key and UDP port.
+      required: [address, routes]
+      properties:
+        mtu:
+          type: integer
+          minimum: 68
+          maximum: 65475
+          description: Optional inner IPv4 MTU for the tunnel route, in bytes.
+          example: 1380
+        peers:
+          type: array
+          default: []
+          maxItems: 1
+          items:
+            type: object
+            required: [publicKey, endpoint, allowedIPs]
+            properties:
+              publicKey:
+                type: string
+                description: Base64-encoded 32-byte WireGuard public key
+              endpoint:
+                type: string
+                example: "192.0.2.1:51820"
+                description: Peer's unicast IPv4 address and UDP port.
+              persistentKeepaliveSeconds:
+                type: integer
+                minimum: 0
+                maximum: 65535
+                default: 0
+                description: >-
+                  Periodic keepalive interval in seconds. Zero disables
+                  persistent keepalive.
+              allowedIPs:
+                type: array
+                minItems: 1
+                maxItems: 1
+                description: The same canonical IPv4 prefix as routes.
+                items:
+                  type: string
+                  example: "10.77.0.0/24"
+        address:
+          type: string
+          format: ipv4
+          description: |
+            IPv4 overlay address for guest traffic inside the tunnel. A peer
+            prefix may cover this address, which remains reserved for the VM.
+        routes:
+          type: array
+          minItems: 1
+          maxItems: 1
+          description: >-
+            Prefix reserved for the tunnel, including after peer withdrawal.
+          items:
+            type: string
+            description: >-
+              Canonical IPv4 prefix other than /0. Must not overlap the VM
+              subnet.
+            example: "10.77.0.0/24"
     VMState:
       title: Virtual Machine State
       type: object
@@ -1041,9 +1135,31 @@ components:
         worker:
           type: string
           description: Worker on which the VM was assigned to
+        restart_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Number of times the controller has restarted the VM. Omitted at
+            zero.
         observedGeneration:
           type: number
           description: Corresponds to the `Generation` value on which the worker had acted upon
+        observedWireGuard:
+          type: object
+          readOnly: true
+          description: >-
+            Public key and UDP listening port of the VM's Mac-side WireGuard
+            gateway, as reported by the worker.
+          required: [publicKey, listenPort]
+          properties:
+            publicKey:
+              type: string
+              description: Base64-encoded public key of the Mac-side gateway
+            listenPort:
+              type: integer
+              minimum: 1
+              maximum: 65535
+              description: Actual UDP port selected by the operating system.
         observedEndpoints:
           type: array
           readOnly: true
