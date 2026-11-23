@@ -55,6 +55,18 @@ func TestLabelsCopy(t *testing.T) {
 	require.NotNil(t, v1.Labels(nil).Copy())
 }
 
+func TestLabelsMatchEmptyValue(t *testing.T) {
+	const label = "dedicated"
+	required := v1.Labels{label: ""}
+
+	require.False(t, v1.Labels(nil).Contains(required))
+	require.False(t, v1.Labels{}.Contains(required))
+	require.False(t, v1.Labels{"other": ""}.Contains(required))
+	require.False(t, v1.Labels{label: "build"}.Contains(required))
+	require.True(t, v1.Labels{label: ""}.Contains(required))
+	require.True(t, v1.Labels{label: "", "region": "west"}.Contains(required))
+}
+
 func TestLabelsMerged(t *testing.T) {
 	const (
 		originalValue = "original"
