@@ -104,6 +104,69 @@ func TestSchedulingLoopSkipsOvercommittedWorker(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestSchedulingRequiresEmptyValuedLabel(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	store, err := badger.NewBadgerStore(t.TempDir(), true, logger)
+	require.NoError(t, err)
+
+	var worker v1.Worker
+	worker.Name = "worker-a"
+	worker.LastSeen = time.Now()
+	worker.MachineID = "machine-a"
+	worker.Resources = v1.Resources{v1.ResourceTartVMs: 2}
+	worker.Arch = v1.ArchitectureARM64
+	worker.Runtime = v1.RuntimeTart
+
+	var vm v1.VM
+	vm.Name = "dedicated-vm"
+	vm.UID = "dedicated-vm-uid"
+	vm.CreatedAt = time.Now()
+	vm.Status = v1.VMStatusPending
+	vm.PowerState = v1.PowerStateRunning
+	vm.Resources = v1.Resources{v1.ResourceTartVMs: 1}
+	vm.Arch = v1.ArchitectureARM64
+	vm.Runtime = v1.RuntimeTart
+	vm.Labels = v1.Labels{"dedicated": ""}
+	vm.Conditions = []v1.Condition{{Type: v1.ConditionTypeScheduled, State: v1.ConditionStateFalse}}
+
+	settings := v1.ClusterSettings{SchedulerProfile: v1.SchedulerProfileOptimizeUtilization}
+	require.NoError(t, store.Update(func(txn storepkg.Transaction) error {
+		if err := txn.SetClusterSettings(settings); err != nil {
+			return err
+		}
+		if err := txn.SetWorker(worker); err != nil {
+			return err
+		}
+		return txn.SetVM(vm)
+	}))
+	scheduler, err := NewScheduler(store, notifier.NewNotifier(logger), time.Minute, logger)
+	require.NoError(t, err)
+
+	_, _, err = scheduler.schedulingLoopIteration()
+	require.NoError(t, err)
+	require.NoError(t, store.View(func(txn storepkg.Transaction) error {
+		pending, err := txn.GetVM(vm.Name)
+		require.NoError(t, err)
+		require.False(t, pending.IsScheduled())
+		require.Empty(t, pending.Worker)
+		return nil
+	}))
+
+	worker.Labels = v1.Labels{"dedicated": ""}
+	require.NoError(t, store.Update(func(txn storepkg.Transaction) error {
+		return txn.SetWorker(worker)
+	}))
+	_, _, err = scheduler.schedulingLoopIteration()
+	require.NoError(t, err)
+	require.NoError(t, store.View(func(txn storepkg.Transaction) error {
+		scheduled, err := txn.GetVM(vm.Name)
+		require.NoError(t, err)
+		require.True(t, scheduled.IsScheduled())
+		require.Equal(t, worker.Name, scheduled.Worker)
+		return nil
+	}))
+}
+
 type replaceAfterViewStore struct {
 	storepkg.Store
 
