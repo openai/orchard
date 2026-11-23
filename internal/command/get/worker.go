@@ -72,7 +72,7 @@ func runGetWorker(cmd *cobra.Command, args []string) error {
 	table.AddRow("Machine ID", worker.MachineID)
 	table.AddRow("Scheduling paused", worker.SchedulingPaused)
 	table.AddRow("Default CPU", worker.DefaultCPU)
-	table.AddRow("Default memory", worker.DefaultCPU)
+	table.AddRow("Default memory", worker.DefaultMemory)
 
 	resourcesInfo := strings.Join(lo.MapToSlice(worker.Resources, func(key string, value uint64) string {
 		return fmt.Sprintf("%s: %d", key, value)
