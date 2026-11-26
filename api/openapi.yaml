@@ -763,6 +763,14 @@ components:
           type: boolean
           description: Enable nested virtualization
           default: false
+        rosetta:
+          type: string
+          description: |
+            Expose Rosetta to an arm64 Linux Tart guest using this virtiofs mount tag.
+            Requires a compatible Tart worker with Rosetta installed. The guest must
+            mount and configure the share. Omitted or empty disables this option.
+            This field cannot be changed after the VM is created.
+          example: rosetta
         audio:
           type: boolean
           description: |

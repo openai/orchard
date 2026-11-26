@@ -367,6 +367,10 @@ func (vm *VM) run(ctx context.Context, eventStreamer *client.EventStreamer) {
 		runArgs = append(runArgs, "--nested")
 	}
 
+	if resource.Rosetta != "" {
+		runArgs = append(runArgs, fmt.Sprintf("--rosetta=%s", resource.Rosetta))
+	}
+
 	if !resource.Audio {
 		runArgs = append(runArgs, "--no-audio")
 	}

@@ -54,6 +54,33 @@ func TestCloneAndConfigurePreservesSuspendedVM(t *testing.T) {
 	}
 }
 
+func TestRunRosettaConfiguration(t *testing.T) {
+	for _, tag := range []string{"", "translation"} {
+		t.Run("tag="+tag, func(t *testing.T) {
+			commandLog := installCloneFakeTart(t, "", "")
+			vm := newCloneTestVM(v1.VM{
+				Name:      "test-vm",
+				UID:       "00112233-4455-6677-8899-aabbccddeeff",
+				Rosetta:   tag,
+				Audio:     true,
+				Clipboard: true,
+				VMSpec:    v1.VMSpec{OS: v1.OSLinux, Runtime: v1.RuntimeTart},
+			})
+			vm.ctx = t.Context()
+			vm.ConditionsSet().Add(v1.ConditionTypeStopping)
+
+			vm.run(t.Context(), nil)
+
+			require.NoError(t, vm.Err())
+			args := "run "
+			if tag != "" {
+				args += "--rosetta=" + tag + " "
+			}
+			requireCloneCommands(t, commandLog, []string{args + "--no-usb-accessories " + vm.id()})
+		})
+	}
+}
+
 func TestRunUSBAccessoriesConfiguration(t *testing.T) {
 	for _, test := range []struct {
 		name           string
