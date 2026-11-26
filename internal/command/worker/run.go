@@ -65,7 +65,7 @@ func newRunCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "",
 		"name of the worker (defaults to the hostname)")
 	cmd.Flags().StringVar(&bootstrapTokenRaw, "bootstrap-token", "",
-		"a bootstrap token retrieved via \"orchard get bootstrap-token <service-account-name-for-workers>\"")
+		"the complete token returned by \"orchard get bootstrap-token <worker-service-account>\", not the account name or its raw token")
 	cmd.Flags().BoolVar(&bootstrapTokenStdin, "bootstrap-token-stdin", false,
 		"use this flag to provide a bootstrap token via the standard input")
 	cmd.Flags().StringVar(&logFilePath, "log-file", "",
@@ -149,7 +149,7 @@ func runWorker(cmd *cobra.Command, args []string) (err error) {
 	if bootstrapTokenRaw == "" {
 		return ErrEmptyBootstrapTokenProvided
 	}
-	bootstrapToken, err := bootstraptoken.NewFromString(bootstrapTokenRaw)
+	bootstrapToken, err := parseWorkerBootstrapToken(bootstrapTokenRaw)
 	if err != nil {
 		return err
 	}
@@ -242,6 +242,16 @@ func runWorker(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	return group.Wait()
+}
+
+// parseWorkerBootstrapToken distinguishes a worker bootstrap token from the
+// controller's bootstrap administrator credentials without printing either.
+func parseWorkerBootstrapToken(raw string) (*bootstraptoken.BootstrapToken, error) {
+	token, err := bootstraptoken.NewFromString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("expected the complete output of orchard get bootstrap-token <worker-service-account>, not a service account name or raw service account token: %w", err)
+	}
+	return token, nil
 }
 
 func readBootstrapToken() (string, error) {

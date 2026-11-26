@@ -12,8 +12,11 @@ func newGetBootstrapTokenCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "bootstrap-token NAME",
 		Short: "Retrieve a bootstrap token for the specified service account",
-		RunE:  runGetBootstrapToken,
-		Args:  cobra.ExactArgs(1),
+		Long: "Retrieve a complete bootstrap token for the specified service account. " +
+			"For worker registration, use a service account configured with worker permissions, " +
+			"not the controller's bootstrap administrator. Pass the returned token to orchard worker run.",
+		RunE: runGetBootstrapToken,
+		Args: cobra.ExactArgs(1),
 	}
 
 	return command
