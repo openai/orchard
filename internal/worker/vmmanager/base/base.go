@@ -106,8 +106,20 @@ func (vm *VM) StatusMessage() string {
 }
 
 func (vm *VM) SetStatusMessage(status string) {
-	vm.logger.Debugf(status)
-	vm.statusMessage.Store(&status)
+	previous := vm.statusMessage.Swap(&status)
+	if previous != nil && *previous == status {
+		return
+	}
+	previousStatus := ""
+	if previous != nil {
+		previousStatus = *previous
+	}
+	vm.logger.Infow("VM status changed",
+		"vm", vm.onDiskName.Name,
+		"on_disk_name", vm.onDiskName.String(),
+		"previous_status", previousStatus,
+		"status", status,
+	)
 }
 
 func (vm *VM) Err() error {
