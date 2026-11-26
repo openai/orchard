@@ -87,7 +87,7 @@ func newCreateVMCommand() *cobra.Command {
 	command.Flags().StringToStringVar(&resources, "resources", map[string]string{},
 		"resources to request for this VM")
 	command.Flags().StringToStringVar(&labels, "labels", map[string]string{},
-		"labels required by this VM")
+		"labels required by this VM (use org.cirruslabs.orchard.worker-name=<name> for worker affinity)")
 	command.Flags().BoolVar(&randomSerial, "random-serial", false,
 		"generate a new random serial number if this is a macOS VM (no-op for Linux VMs)")
 	command.Flags().StringVar(&restartPolicy, "restart-policy", string(v1.RestartPolicyNever),
