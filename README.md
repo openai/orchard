@@ -42,6 +42,22 @@ You can interact with the newly created cluster using the `orchard` CLI or progr
 
 ### Keep VMs with worker-local directories on the same worker
 
+Host directory sharing is disabled by default. In a trusted development
+cluster, start `orchard dev --insecure-allow-host-dirs` instead of `orchard dev`
+above. For an existing cluster, the administrator must start the controller
+with `orchard controller run --insecure-allow-host-dirs` (retaining its other
+configuration). The administrator must also allow the path in cluster
+settings before creating the VM:
+
+```shell
+orchard set cluster-settings --host-dir-policies=/path/on/worker
+```
+
+This example permits read-write mounts under that path. Host directory sharing
+exposes worker files to the guest; enable it only for trusted workloads and use
+the narrowest directory prefix needed. Provision the directory on the selected
+worker first.
+
 Workers automatically advertise the `org.cirruslabs.orchard.worker-name` label,
 using their registered name by default. To keep a VM with worker-local storage
 on a particular worker, require that label when creating it:
@@ -59,6 +75,6 @@ after a failure. If that worker is unavailable, the VM remains pending rather
 than being placed on a worker without the required label. Do not override the
 automatic label or reuse its value on multiple workers when using it for
 worker-local storage. Labels do not verify the existence or contents of a host
-directory; provision the directory on the selected worker first.
+directory.
 
 Please check out the [official documentation](https://tart.run/orchard/quick-start/) for more information and/or feel free to use [issues](https://github.com/cirruslabs/orchard/issues) for the remaining questions.
