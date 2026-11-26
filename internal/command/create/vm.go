@@ -28,6 +28,7 @@ var netSoftnetBlock []string
 var netBridged string
 var headless bool
 var nested bool
+var rosetta string
 var audio bool
 var clipboard bool
 var suspendable bool
@@ -74,6 +75,7 @@ func newCreateVMCommand() *cobra.Command {
 	command.Flags().StringVar(&netBridged, "net-bridged", "", "whether to use Bridged network mode")
 	command.Flags().BoolVar(&headless, "headless", true, "whether to run without graphics")
 	command.Flags().BoolVar(&nested, "nested", false, "enable nested virtualization")
+	command.Flags().StringVar(&rosetta, "rosetta", "", "expose Rosetta to a Linux Tart guest using this virtiofs mount tag")
 	command.Flags().BoolVar(&audio, "audio", false, "enable audio pass-through to the host")
 	command.Flags().BoolVar(&clipboard, "clipboard", false, "enable clipboard sharing between host and guest")
 	command.Flags().BoolVar(&usbAccessories, "usb-accessories", false, "enable USB accessories in a Tart VM")
@@ -167,6 +169,7 @@ func runCreateVM(cmd *cobra.Command, args []string) error {
 		NetBridged:   netBridged,
 		Headless:     headless,
 		Nested:       nested,
+		Rosetta:      rosetta,
 		Audio:        audio,
 		Clipboard:    clipboard,
 		Username:     username,

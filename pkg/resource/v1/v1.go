@@ -36,8 +36,10 @@ type VM struct {
 	NetBridged      string          `json:"net-bridged,omitempty"`
 	Headless        bool            `json:"headless,omitempty"`
 	Nested          bool            `json:"nested,omitempty"`
-	Audio           bool            `json:"audio,omitempty"`
-	Clipboard       bool            `json:"clipboard,omitempty"`
+	// Rosetta is the optional virtiofs mount tag for a Linux Tart guest.
+	Rosetta   string `json:"rosetta,omitempty"`
+	Audio     bool   `json:"audio,omitempty"`
+	Clipboard bool   `json:"clipboard,omitempty"`
 
 	VMSpec
 	VMSpecReadOnly
@@ -158,6 +160,18 @@ func (vm *VM) Validate() error {
 
 	unsupportedFieldError := func(field string) error {
 		return fmt.Errorf("runtime %q does not support field %q", vm.Runtime, field)
+	}
+
+	if vm.Rosetta != "" {
+		if vm.Runtime != "" && vm.Runtime != RuntimeTart {
+			return unsupportedFieldError("rosetta")
+		}
+		if vm.OS != OSLinux {
+			return fmt.Errorf("rosetta requires a Linux guest")
+		}
+		if vm.Arch != "" && vm.Arch != ArchitectureARM64 {
+			return fmt.Errorf("rosetta requires an arm64 guest")
+		}
 	}
 
 	switch vm.Runtime {
